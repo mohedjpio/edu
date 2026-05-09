@@ -1,0 +1,961 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1.0,viewport-fit=cover,interactive-widget=resizes-content"/>
+  <meta name="theme-color" content="#080c0c"/>
+  <meta name="apple-mobile-web-app-capable" content="yes"/>
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
+  <title>SmartShare — Instant P2P Sharing</title>
+  <meta name="description" content="Share files, chat, and video call directly between devices. No accounts. No cloud. End-to-end encrypted."/>
+  <link rel="manifest" href="/manifest.json"/>
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+  <link rel="stylesheet" href="/styles/main.css"/>
+</head>
+<body>
+
+<!-- ═══════════════════════════════════════════
+     LANDING SCREEN
+═══════════════════════════════════════════ -->
+<div id="landing-screen" class="screen active">
+
+  <!-- ── NAVBAR ── -->
+  <nav class="lp-nav">
+    <div class="lp-nav-brand">
+      <div class="logo-mark"><span>SS</span></div>
+      <span class="brand-name">SmartShare</span>
+    </div>
+    <div class="lp-nav-links">
+      <a href="#features" class="lp-navlink">Features</a>
+      <a href="#how"      class="lp-navlink">How it works</a>
+      <a href="#pricing"  class="lp-navlink">Pricing</a>
+      <a href="#reviews"  class="lp-navlink">Reviews</a>
+      <a href="/edu-meet.html" class="lp-navlink" style="color:var(--cyan3);font-weight:600;display:flex;align-items:center;gap:5px;">🎓 EduMeet</a>
+    </div>
+    <div class="lp-nav-actions">
+      <button class="theme-toggle" id="theme-toggle" aria-label="Toggle theme">
+        <svg id="theme-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+        <span id="theme-label">Light</span>
+      </button>
+      <button class="lp-btn-ghost lp-btn-sm" id="lp-join-link">Sign in</button>
+      <button class="lp-btn-primary lp-btn-sm" id="lp-open-app">Get Started</button>
+    </div>
+  </nav>
+
+  <!-- ── HERO ── -->
+  <section class="lp-hero">
+    <!-- Wave background -->
+    <div class="lp-hero-wave">
+      <svg viewBox="0 0 1440 320" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">
+        <path d="M0,160L60,170.7C120,181,240,203,360,197.3C480,192,600,160,720,149.3C840,139,960,149,1080,165.3C1200,181,1320,203,1380,213.3L1440,224L1440,0L1380,0C1320,0,1200,0,1080,0C960,0,840,0,720,0C600,0,480,0,360,0C240,0,120,0,60,0L0,0Z" fill="url(#heroGrad)"/>
+        <defs>
+          <linearGradient id="heroGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%"   stop-color="var(--cyan)"  stop-opacity=".18"/>
+            <stop offset="100%" stop-color="var(--cyan3)" stop-opacity=".08"/>
+          </linearGradient>
+        </defs>
+      </svg>
+    </div>
+    <!-- Floating blobs -->
+    <div class="lp-blob lp-blob-1"></div>
+    <div class="lp-blob lp-blob-2"></div>
+    <div class="lp-blob lp-blob-3"></div>
+
+    <div class="lp-hero-content">
+      <div class="lp-hero-left">
+        <div class="lp-eyebrow-pill">
+          <div class="lp-eyebrow-dot"></div>
+          100% Peer-to-Peer · Zero server storage
+        </div>
+        <h1 class="lp-h1">Share Files.<br>Chat. Call.<br><span class="lp-gradient">Privately.</span></h1>
+        <p class="lp-sub">Send files of any size, chat in real-time, and video call directly between devices. No accounts. No cloud. End-to-end encrypted.</p>
+        <div class="lp-hero-btns">
+          <button class="lp-btn-primary" id="lp-start">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+            Get Started Free
+          </button>
+          <button class="lp-btn-outline" id="lp-join-link-3">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg>
+            Join a Session
+          </button>
+        </div>
+        <div class="lp-trust">
+          <span><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg> DTLS encrypted</span>
+          <span><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg> Sub-second latency</span>
+          <span><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="2" width="14" height="20" rx="2"/></svg> Any device</span>
+        </div>
+      </div>
+      <div class="lp-hero-right">
+        <!-- App mockup card -->
+        <div class="lp-mockup-phone">
+          <div class="lp-phone-notch"></div>
+          <div class="lp-phone-screen">
+            <div class="lp-phone-header">
+              <div class="lp-phone-avatar">A</div>
+              <div>
+                <div class="lp-phone-name">Alex &amp; Sarah</div>
+                <div class="lp-phone-status"><span class="dot dot-green" style="width:5px;height:5px"></span> Connected</div>
+              </div>
+            </div>
+            <div class="lp-phone-msgs">
+              <div class="lp-phone-msg lp-phone-msg-in">Hey! Got the files? 👋</div>
+              <div class="lp-phone-msg lp-phone-msg-out">Sending now — 200MB!</div>
+              <div class="lp-phone-file">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/></svg>
+                <span>design_assets.zip</span>
+                <div class="lp-phone-progress"><div class="lp-phone-fill"></div></div>
+              </div>
+              <div class="lp-phone-msg lp-phone-msg-in">Perfect, got it! ✓</div>
+            </div>
+          </div>
+          <!-- Floating badges -->
+          <div class="lp-phone-badge lp-badge-top">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+            End-to-end encrypted
+          </div>
+          <div class="lp-phone-badge lp-badge-bottom">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+            P2P · No server
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Stats strip inside hero -->
+    <div class="lp-hero-stats">
+      <div class="lp-hstat"><span class="lp-hstat-num">500</span><span class="lp-hstat-lbl">Max students per class</span></div>
+      <div class="lp-hstat-div"></div>
+      <div class="lp-hstat"><span class="lp-hstat-num">0</span><span class="lp-hstat-lbl">Files stored on server</span></div>
+      <div class="lp-hstat-div"></div>
+      <div class="lp-hstat"><span class="lp-hstat-num">&lt;1s</span><span class="lp-hstat-lbl">Connection time</span></div>
+      <div class="lp-hstat-div"></div>
+      <div class="lp-hstat"><span class="lp-hstat-num">∞</span><span class="lp-hstat-lbl">File size limit</span></div>
+    </div>
+  </section>
+
+  <!-- ── EDUMEET SERVICE BANNER ── -->
+  <section style="padding:0 24px;max-width:900px;margin:0 auto;margin-bottom:0;">
+    <div style="border:1.5px solid rgba(10,186,181,.3);border-radius:20px;padding:28px 36px;background:linear-gradient(135deg,rgba(10,186,181,.08) 0%,rgba(8,146,208,.06) 100%);display:flex;align-items:center;gap:24px;flex-wrap:wrap;">
+      <div style="font-size:2.4rem;flex-shrink:0;">🎓</div>
+      <div style="flex:1;min-width:200px;">
+        <div style="font-size:1.1rem;font-weight:700;letter-spacing:-.02em;margin-bottom:5px;">EduMeet — Professional Education Meetings</div>
+        <div style="font-size:.84rem;color:var(--tx2);line-height:1.5;">Live classes for up to 500 students · Attendance tracking · Polls · Announcements · Pre-join lobby with camera/mic controls · Fully end-to-end encrypted</div>
+      </div>
+      <a href="/edu-meet.html" style="padding:12px 24px;border-radius:10px;background:var(--cyan);color:#020d0d;font-weight:700;font-size:.9rem;text-decoration:none;white-space:nowrap;flex-shrink:0;transition:all .15s;" onmouseover="this.style.background='var(--cyan2)'" onmouseout="this.style.background='var(--cyan)'">Start a Class →</a>
+    </div>
+  </section>
+
+  <!-- ── FEATURES ── -->
+  <section class="lp-features-section" id="features">
+    <div class="lp-section-header lp-reveal">
+      <span class="lp-section-kicker">Features</span>
+      <h2 class="lp-section-title">Everything you need to share</h2>
+      <p class="lp-section-sub">A complete communication suite that runs entirely peer-to-peer.</p>
+    </div>
+
+    <!-- Feature row: text left + mockup center + text right -->
+    <div class="lp-feat-3col lp-reveal">
+      <div class="lp-feat-col">
+        <div class="lp-feat-item">
+          <div class="lp-feat-icon-wrap"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg></div>
+          <div><h4>File Transfer</h4><p>Any file, any size. Chunked P2P streaming with no upload limits.</p></div>
+        </div>
+        <div class="lp-feat-item">
+          <div class="lp-feat-icon-wrap"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></div>
+          <div><h4>Real-time Chat</h4><p>Instant group messaging with typing indicators and sender names.</p></div>
+        </div>
+        <div class="lp-feat-item">
+          <div class="lp-feat-icon-wrap"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></div>
+          <div><h4>Zero Knowledge</h4><p>Your data never touches our servers. Fully encrypted WebRTC.</p></div>
+        </div>
+      </div>
+
+      <!-- Center mockup -->
+      <div class="lp-feat-center">
+        <div class="lp-feat-phone">
+          <div class="lp-feat-phone-inner">
+            <div class="lp-feat-screen-top">
+              <div class="lp-feat-screen-bar"></div>
+              <div class="lp-feat-screen-bar lp-bar-short"></div>
+            </div>
+            <div class="lp-feat-screen-mid">
+              <div class="lp-feat-msg-a">Hello! 👋</div>
+              <div class="lp-feat-msg-b">Sending file…</div>
+              <div class="lp-feat-upload-card">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><polyline points="13,2 13,9 20,9"/></svg>
+                <div class="lp-feat-upload-info">
+                  <div class="lp-feat-upload-name">project.zip</div>
+                  <div class="lp-feat-upload-bar"><div class="lp-feat-upload-fill"></div></div>
+                </div>
+              </div>
+              <div class="lp-feat-msg-a">Got it! ✓</div>
+            </div>
+            <div class="lp-feat-screen-btn">Share Now →</div>
+          </div>
+          <div class="lp-feat-phone-glow"></div>
+        </div>
+        <div class="lp-feat-center-label">Find Your Best<br><strong>Connection</strong></div>
+      </div>
+
+      <div class="lp-feat-col lp-feat-col-r">
+        <div class="lp-feat-item">
+          <div class="lp-feat-icon-wrap"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg></div>
+          <div><h4>HD Video Calls</h4><p>Crystal-clear video with screen sharing. Minimize and keep chatting.</p></div>
+        </div>
+        <div class="lp-feat-item">
+          <div class="lp-feat-icon-wrap"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1"/></svg></div>
+          <div><h4>Clipboard Sync</h4><p>Copy on one device, paste on another. Instant cross-device sync.</p></div>
+        </div>
+        <div class="lp-feat-item">
+          <div class="lp-feat-icon-wrap"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg></div>
+          <div><h4>QR Connect</h4><p>Scan a QR code to instantly join any session from anywhere.</p></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── MESSAGING STRIP ── -->
+  <section class="lp-msg-strip">
+    <div class="lp-msg-strip-inner lp-reveal">
+      <div class="lp-msg-strip-left">
+        <div class="lp-msg-mockup">
+          <div class="lp-msg-bubble lp-msg-b-in">Hey, got the report? 📎</div>
+          <div class="lp-msg-bubble lp-msg-b-out">Sending now… 45 MB</div>
+          <div class="lp-msg-file-row">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/></svg>
+            <span>report_Q4.pdf</span>
+            <span class="lp-msg-check">✓</span>
+          </div>
+          <div class="lp-msg-bubble lp-msg-b-in">Perfect timing! 🎉</div>
+        </div>
+      </div>
+      <div class="lp-msg-strip-right">
+        <span class="lp-section-kicker">Real-time P2P</span>
+        <h2 class="lp-section-title" style="text-align:left;max-width:440px">Simple Real-time Messaging</h2>
+        <p class="lp-section-sub" style="text-align:left;max-width:400px">Messages travel directly from your device to theirs. No server reads your conversation. No logs. No ads. Just instant, private communication.</p>
+        <button class="lp-btn-primary" id="lp-start-2" style="margin-top:1.5rem">
+          Start for free
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+        </button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── PRICING ── -->
+  <section class="lp-pricing" id="pricing">
+    <div class="lp-section-header lp-reveal">
+      <span class="lp-section-kicker">Pricing</span>
+      <h2 class="lp-section-title">Simple, honest pricing</h2>
+      <p class="lp-section-sub">No hidden fees. No surprise bills. Always free for personal use.</p>
+      <div class="lp-price-toggle">
+        <button class="lp-price-tab active" id="tab-monthly">Monthly</button>
+        <button class="lp-price-tab" id="tab-yearly">Yearly <span class="lp-price-save">Save 20%</span></button>
+      </div>
+    </div>
+    <div class="lp-price-cards lp-reveal">
+      <!-- Free -->
+      <div class="lp-price-card">
+        <div class="lp-price-top">
+          <h3 class="lp-price-name">Free</h3>
+          <p class="lp-price-desc">For personal use &amp; quick sharing</p>
+        </div>
+        <div class="lp-price-amount"><span class="lp-price-curr">$</span>0<span class="lp-price-per">/mo</span></div>
+        <ul class="lp-price-list">
+          <li><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg> Unlimited file transfers</li>
+          <li><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg> P2P chat &amp; clipboard sync</li>
+          <li><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg> Up to 10 peers per room</li>
+          <li class="lp-price-dim"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg> HD video calls</li>
+          <li class="lp-price-dim"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg> Screen sharing</li>
+        </ul>
+        <button class="lp-price-btn lp-price-btn-ghost" id="lp-open-app-2">Get Started</button>
+      </div>
+      <!-- Pro (highlighted) -->
+      <div class="lp-price-card lp-price-featured">
+        <div class="lp-price-badge">Most Popular</div>
+        <div class="lp-price-top">
+          <h3 class="lp-price-name">Pro</h3>
+          <p class="lp-price-desc">For teams &amp; power users</p>
+        </div>
+        <div class="lp-price-amount"><span class="lp-price-curr">$</span><span id="pro-price">9</span><span class="lp-price-per">/mo</span></div>
+        <ul class="lp-price-list">
+          <li><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg> Everything in Free</li>
+          <li><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg> Up to 500 students per class</li>
+          <li><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg> HD video &amp; voice calls</li>
+          <li><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg> Screen sharing</li>
+          <li><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg> Priority support</li>
+        </ul>
+        <button class="lp-price-btn lp-price-btn-primary" id="lp-start-3">Subscribe Now</button>
+      </div>
+      <!-- Enterprise -->
+      <div class="lp-price-card">
+        <div class="lp-price-top">
+          <h3 class="lp-price-name">Enterprise</h3>
+          <p class="lp-price-desc">For large organizations</p>
+        </div>
+        <div class="lp-price-amount"><span style="font-size:1.5rem;font-weight:700;color:var(--tx1)">Custom</span></div>
+        <ul class="lp-price-list">
+          <li><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg> Everything in Pro</li>
+          <li><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg> Self-hosted option</li>
+          <li><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg> Custom TURN/STUN servers</li>
+          <li><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg> SLA &amp; dedicated support</li>
+          <li><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg> SSO &amp; audit logs</li>
+        </ul>
+        <button class="lp-price-btn lp-price-btn-ghost">Contact Sales</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── TESTIMONIALS ── -->
+  <section class="lp-reviews" id="reviews">
+    <div class="lp-section-header lp-reveal">
+      <span class="lp-section-kicker">Testimonials</span>
+      <h2 class="lp-section-title">Loved by teams worldwide</h2>
+      <p class="lp-section-sub">Here's what people are saying about SmartShare.</p>
+    </div>
+    <div class="lp-reviews-track lp-reveal">
+      <div class="lp-review-card">
+        <div class="lp-review-stars">★★★★★</div>
+        <p class="lp-review-text">"Sent a 2GB video file to my colleague in seconds. No upload, no waiting. This is how file sharing should work."</p>
+        <div class="lp-review-author">
+          <div class="lp-review-avatar" style="background:linear-gradient(135deg,#0ABAB5,#56DFCF)">CM</div>
+          <div><div class="lp-review-name">Cameron W.</div><div class="lp-review-role">Product Designer</div></div>
+        </div>
+      </div>
+      <div class="lp-review-card">
+        <div class="lp-review-stars">★★★★★</div>
+        <p class="lp-review-text">"We use it for daily standups. The group video call is rock solid and the screen share works perfectly every time."</p>
+        <div class="lp-review-author">
+          <div class="lp-review-avatar" style="background:linear-gradient(135deg,#56DFCF,#ADEED9)">RE</div>
+          <div><div class="lp-review-name">Ralph E.</div><div class="lp-review-role">Engineering Lead</div></div>
+        </div>
+      </div>
+      <div class="lp-review-card">
+        <div class="lp-review-stars">★★★★★</div>
+        <p class="lp-review-text">"The privacy aspect is what sold me. I know my files aren't being scanned or stored anywhere. Absolute peace of mind."</p>
+        <div class="lp-review-author">
+          <div class="lp-review-avatar" style="background:linear-gradient(135deg,#0ABAB5,#ADEED9)">AB</div>
+          <div><div class="lp-review-name">Annette B.</div><div class="lp-review-role">HR Director</div></div>
+        </div>
+      </div>
+      <div class="lp-review-card">
+        <div class="lp-review-stars">★★★★★</div>
+        <p class="lp-review-text">"QR code connection is genius. My client scans it on their phone, we're sharing files instantly. No app download needed."</p>
+        <div class="lp-review-author">
+          <div class="lp-review-avatar" style="background:linear-gradient(135deg,#56DFCF,#0ABAB5)">MK</div>
+          <div><div class="lp-review-name">Maria K.</div><div class="lp-review-role">Freelance Consultant</div></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── NEWSLETTER ── -->
+  <section class="lp-newsletter lp-reveal">
+    <div class="lp-newsletter-inner">
+      <div class="lp-newsletter-left">
+        <h2 class="lp-nl-title">Join thousands sharing privately</h2>
+        <p class="lp-nl-sub">Start a session in seconds. No email required — just click and share.</p>
+      </div>
+      <div class="lp-newsletter-right">
+        <div class="lp-nl-form">
+          <input type="email" class="lp-nl-input" placeholder="Enter your email for updates…"/>
+          <button class="lp-btn-primary" style="white-space:nowrap">Subscribe</button>
+        </div>
+        <p class="lp-nl-note">Or just <button class="lp-nl-link" id="lp-start-4">start sharing now →</button></p>
+      </div>
+    </div>
+    <div class="lp-nl-phone-decoration">
+      <div class="lp-nl-phone">
+        <div class="lp-nl-screen">
+          <div class="lp-nl-screen-top">
+            <div class="dot dot-green" style="box-shadow:0 0 6px #22c55e"></div>
+            <span style="font-size:.6rem;color:var(--cyan3);font-weight:600">P2P Active</span>
+          </div>
+          <div class="lp-nl-bubbles">
+            <div class="lp-nl-bub lp-nl-bub-in">Ready to share? 📁</div>
+            <div class="lp-nl-bub lp-nl-bub-out">Always! 🚀</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── FOOTER ── -->
+  <footer class="lp-footer">
+    <div class="lp-footer-inner">
+      <div class="lp-footer-col lp-footer-brand-col">
+        <div class="lp-footer-brand">
+          <div class="logo-mark"><span>SS</span></div>
+          <span class="brand-name">SmartShare</span>
+        </div>
+        <p class="lp-footer-tagline">Instant peer-to-peer sharing. No accounts. No cloud. Always private.</p>
+        <div class="lp-footer-social">
+          <a href="#" class="lp-social-btn" aria-label="Twitter">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M23 3a10.9 10.9 0 0 1-3.14 1.53 4.48 4.48 0 0 0-7.86 3v1A10.66 10.66 0 0 1 3 4s-4 9 5 13a11.64 11.64 0 0 1-7 2c9 5 20 0 20-11.5a4.5 4.5 0 0 0-.08-.83A7.72 7.72 0 0 0 23 3z"/></svg>
+          </a>
+          <a href="#" class="lp-social-btn" aria-label="GitHub">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"/></svg>
+          </a>
+          <a href="#" class="lp-social-btn" aria-label="Discord">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M20.317 4.37a19.791 19.791 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 0 0 .031.057 19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.028c.462-.63.874-1.295 1.226-1.994a.076.076 0 0 0-.041-.106 13.107 13.107 0 0 1-1.872-.892.077.077 0 0 1-.008-.128 10.2 10.2 0 0 0 .372-.292.074.074 0 0 1 .077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 0 1 .078.01c.12.098.246.198.373.292a.077.077 0 0 1-.006.127 12.299 12.299 0 0 1-1.873.892.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.839 19.839 0 0 0 6.002-3.03.077.077 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.03z"/></svg>
+          </a>
+        </div>
+      </div>
+      <div class="lp-footer-col">
+        <h4 class="lp-footer-col-title">Product</h4>
+        <a href="#features" class="lp-footer-link">Features</a>
+        <a href="#pricing"  class="lp-footer-link">Pricing</a>
+        <a href="#"         class="lp-footer-link">Changelog</a>
+        <a href="#"         class="lp-footer-link">Roadmap</a>
+      </div>
+      <div class="lp-footer-col">
+        <h4 class="lp-footer-col-title">Top Features</h4>
+        <a href="#" class="lp-footer-link">File transfer</a>
+        <a href="#" class="lp-footer-link">Group rooms</a>
+        <a href="#" class="lp-footer-link">Video calls</a>
+        <a href="#" class="lp-footer-link">Screen sharing</a>
+      </div>
+      <div class="lp-footer-col">
+        <h4 class="lp-footer-col-title">Company</h4>
+        <a href="#" class="lp-footer-link">About us</a>
+        <a href="#" class="lp-footer-link">Contact</a>
+        <a href="#" class="lp-footer-link">Privacy policy</a>
+        <a href="#" class="lp-footer-link">Terms of service</a>
+      </div>
+    </div>
+    <div class="lp-footer-bottom">
+      <span>© 2025 SmartShare · Built with WebRTC · Open source</span>
+      <span>Crafted with ♥</span>
+    </div>
+  </footer>
+
+</div><!-- /landing-screen -->
+<!-- /landing-screen -->
+
+
+<!-- ═══════════════════════════════════════════
+     CONNECT SCREEN
+═══════════════════════════════════════════ -->
+<div id="connect-screen" class="screen">
+  <div class="cs-wrap">
+
+    <!-- Left brand panel (desktop only) -->
+    <aside class="cs-brand">
+      <div class="cs-brand-bg-dots"></div>
+      <div class="cs-brand-inner">
+        <div class="cs-brand-logo">
+          <div class="logo-mark"><span>SS</span></div>
+          <span class="brand-name">SmartShare</span>
+        </div>
+        <h1>Share anything,<br><span class="lp-gradient">instantly.</span></h1>
+        <p class="cs-brand-desc">Direct peer-to-peer connections. Your files and messages never touch our servers — they travel encrypted, directly between devices.</p>
+        <div class="cs-brand-feats">
+          <div class="cs-brand-feat">
+            <div class="cs-brand-feat-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg></div>
+            Files of any size, no limits
+          </div>
+          <div class="cs-brand-feat">
+            <div class="cs-brand-feat-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></div>
+            Classes &amp; groups up to 500
+          </div>
+          <div class="cs-brand-feat">
+            <div class="cs-brand-feat-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg></div>
+            HD video with screen sharing
+          </div>
+          <div class="cs-brand-feat">
+            <div class="cs-brand-feat-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></div>
+            End-to-end encrypted by WebRTC
+          </div>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Right form panel -->
+    <main class="cs-main">
+      <div class="cs-card">
+
+        <!-- Mobile-only brand header -->
+        <div class="cs-mobile-brand">
+          <div class="logo-mark"><span>SS</span></div>
+          <span class="brand-name">SmartShare</span>
+          <button class="theme-toggle" id="theme-toggle-3" style="margin-left:auto" aria-label="Toggle theme">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+            <span>Theme</span>
+          </button>
+        </div>
+
+        <!-- Desktop back + theme -->
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1.5rem" class="cs-top-row">
+          <button class="lp-back-btn" id="btn-back-landing">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
+            Back
+          </button>
+          <button class="theme-toggle" id="theme-toggle-2" aria-label="Toggle theme">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+            <span>Theme</span>
+          </button>
+        </div>
+
+        <div class="cs-card-header">
+          <h2>Start a session</h2>
+          <p>Enter your name, pick a mode, then create or join</p>
+        </div>
+
+        <!-- Name field -->
+        <div class="cs-name-field">
+          <label for="my-name-input">Your display name</label>
+          <input id="my-name-input" type="text" placeholder="e.g. Alex" autocomplete="given-name" maxlength="32"/>
+        </div>
+
+        <!-- Education Role selector -->
+        <div class="edu-role-wrap">
+          <label for="edu-role-select">Join as</label>
+          <select id="edu-role-select" class="edu-role-select">
+            <option value="student">👤 Student</option>
+            <option value="instructor">🎓 Instructor / Teacher</option>
+          </select>
+        </div>
+
+        <!-- Mode selection -->
+        <div class="mode-select-wrap">
+          <span class="mode-select-label">Session type</span>
+          <div class="mode-cards-grid">
+            <div class="mode-card" data-mode="p2p">
+              <div class="mc-icon">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="8" cy="8" r="4"/><circle cx="18" cy="16" r="4"/><path d="M12 12l2 2"/></svg>
+              </div>
+              <div class="mc-txt">
+                <strong>1-to-1 Private</strong>
+                <span>Direct P2P — 2 people</span>
+              </div>
+              <div class="mc-check"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg></div>
+            </div>
+            <div class="mode-card" data-mode="group">
+              <div class="mc-icon">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="8" cy="7" r="3"/><circle cx="16" cy="7" r="3"/><path d="M2 21v-2a5 5 0 0 1 10 0v2"/><path d="M12 21v-2a5 5 0 0 1 10 0v2"/></svg>
+              </div>
+              <div class="mc-txt">
+                <strong>Group Room</strong>
+                <span>Up to 500 people</span>
+              </div>
+              <div class="mc-check"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Create button (shown after mode selected) -->
+        <div id="create-section" class="hidden">
+          <button id="btn-create" class="btn-create">
+            <span class="bc-icon">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            </span>
+            <span class="bc-txt">
+              <strong>Create session</strong>
+              <small>Generate room &amp; QR code</small>
+            </span>
+          </button>
+        </div>
+
+        <div class="div-or"><span>or join existing</span></div>
+
+        <!-- Join -->
+        <div id="join-panel">
+          <div class="join-row">
+            <input id="room-input" type="text" placeholder="Paste room URL or ID…" autocomplete="off" spellcheck="false"/>
+            <button id="btn-join" class="btn-join">Join</button>
+          </div>
+        </div>
+
+        <!-- QR section -->
+        <div id="qr-section" class="qr-wrap hidden">
+          <div class="qr-box">
+            <div id="qr-canvas-wrap"></div>
+            <div class="qr-info">
+              <p class="qr-title">Scan to join</p>
+              <p class="qr-note">Share this link — works worldwide when deployed online.</p>
+              <div class="qr-urlrow">
+                <span id="room-id-text" class="qr-url"></span>
+                <button id="btn-copy-room" class="btn-copy">
+                  <svg width="11" height="11" viewBox="0 0 16 16" fill="none"><rect x="5" y="5" width="9" height="9" rx="1.5" stroke="currentColor" stroke-width="1.5"/><path d="M3 11H2a1 1 0 0 1-1-1V2a1 1 0 0 1 1-1h8a1 1 0 0 1 1 1v1" stroke="currentColor" stroke-width="1.5"/></svg>
+                  Copy
+                </button>
+              </div>
+              <div class="qr-status">
+                <span class="dot dot-amber pulse"></span>
+                <span id="peer-status">Waiting for peer…</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="cs-card-footer">
+          <div class="mode-badge" id="mode-badge">
+            <span class="dot dot-green pulse"></span>
+            <span>Online</span>
+          </div>
+        </div>
+      </div>
+    </main>
+
+  </div>
+</div>
+
+
+<!-- ═══════════════════════════════════════════
+     APP SCREEN
+═══════════════════════════════════════════ -->
+<div id="app-screen" class="screen">
+
+  <!-- Call screen (fixed fullscreen) -->
+  <div id="call-screen" class="call-screen hidden">
+    <video id="video-remote" class="cs-remote" autoplay playsinline></video>
+    <div id="cs-grid" class="cs-grid hidden"></div>
+    <div id="cs-avatar" class="cs-avatar hidden">
+      <div class="cs-avatar-ring"></div>
+      <div class="cs-avatar-icon"><svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2"><circle cx="12" cy="8" r="5"/><path d="M3 21v-1a9 9 0 0 1 18 0v1"/></svg></div>
+      <p id="cs-avatar-name" class="cs-avatar-name"></p>
+    </div>
+    <div id="cs-share-badge" class="cs-share-badge hidden">
+      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+      Sharing screen
+    </div>
+    <div class="cs-topbar" id="cs-topbar">
+      <div class="cs-peer-info">
+        <span id="cs-peer-name" class="cs-peer-name"></span>
+        <span id="cs-call-status" class="cs-call-subtitle"></span>
+      </div>
+      <div style="display:flex;align-items:center;gap:.65rem">
+        <div id="cs-timer" class="cs-timer hidden">00:00</div>
+        <button id="cs-minimize" class="cs-minimize-btn" title="Minimize">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="4 14 10 14 10 20"/><polyline points="20 10 14 10 14 4"/><line x1="10" y1="14" x2="21" y2="3"/><line x1="3" y1="21" x2="14" y2="10"/></svg>
+        </button>
+      </div>
+    </div>
+    <div id="cs-ring-screen" class="cs-ring-screen hidden">
+      <div class="cs-ring-avatar">
+        <div class="cs-ring-pulse cs-ring-pulse-1"></div>
+        <div class="cs-ring-pulse cs-ring-pulse-2"></div>
+        <div class="cs-ring-pulse cs-ring-pulse-3"></div>
+        <div class="cs-ring-icon"><svg width="38" height="38" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3"><circle cx="12" cy="8" r="5"/><path d="M3 21v-1a9 9 0 0 1 18 0v1"/></svg></div>
+      </div>
+      <p id="cs-ring-name" class="cs-ring-name"></p>
+      <p id="cs-ring-status" class="cs-ring-status"></p>
+      <div id="cs-ring-actions" class="cs-ring-actions hidden">
+        <button id="call-btn-reject" class="cs-action-btn cs-btn-decline">
+          <div class="ca-circle"><svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M18.36 6.64A9 9 0 0 1 20.77 15H3.23a9 9 0 0 1 2.41-8.36l-.76-.77A10.43 10.43 0 0 0 2 14a1 1 0 0 0 1 1h18a1 1 0 0 0 1-1 10.43 10.43 0 0 0-2.88-7.13z"/></svg></div>
+          <span>Decline</span>
+        </button>
+        <button id="call-btn-accept" class="cs-action-btn cs-btn-accept">
+          <div class="ca-circle"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.36 12a19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 3.11 1.27h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.09 8.91A16 16 0 0 0 12 16l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 20 17z"/></svg></div>
+          <span>Accept</span>
+        </button>
+      </div>
+    </div>
+    <video id="video-local" class="cs-local hidden" autoplay playsinline muted></video>
+    <div id="cs-controls" class="cs-controls hidden">
+      <button id="call-btn-mute"  class="cs-ctrl-btn" data-label="Mute"   title="Mute"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg></button>
+      <button id="call-btn-cam"   class="cs-ctrl-btn" data-label="Camera" title="Camera"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg></button>
+      <button id="call-btn-share" class="cs-ctrl-btn" data-label="Share"  title="Share screen"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg></button>
+      <div class="cs-ctrl-divider"></div>
+      <button id="call-btn-end"   class="cs-ctrl-btn cs-ctrl-end" data-label="End" title="End call"><svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M18.36 6.64A9 9 0 0 1 20.77 15H3.23a9 9 0 0 1 2.41-8.36l-.76-.77A10.43 10.43 0 0 0 2 14a1 1 0 0 0 1 1h18a1 1 0 0 0 1-1 10.43 10.43 0 0 0-2.88-7.13z"/></svg></button>
+    </div>
+  </div>
+
+  <!-- App layout -->
+  <div class="app-layout">
+
+    <!-- Sidebar -->
+    <aside class="app-sb">
+      <div class="sb-header">
+        <div class="logo-mark sm"><span>SS</span></div>
+        <span class="brand-name">SmartShare</span>
+      </div>
+      <nav class="sb-nav">
+        <button class="snav active" data-tab="chat">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+          Chat
+        </button>
+        <button class="snav" data-tab="files">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><polyline points="13,2 13,9 20,9"/></svg>
+          Files
+        </button>
+        <button class="snav" data-tab="clipboard">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1"/></svg>
+          Clipboard
+        </button>
+        <button class="snav" data-tab="education">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
+          Education
+        </button>
+      </nav>
+
+      <!-- Members -->
+      <div class="sb-peers">
+        <p class="sb-peers-title">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 20v-1a8 8 0 0 1 16 0v1"/></svg>
+          Members
+          <span id="conn-count" class="conn-count">0 peers</span>
+        </p>
+        <div id="peers-list" class="peers-list">
+          <span class="peer-empty">No other members yet</span>
+        </div>
+      </div>
+
+      <div class="sb-footer">
+        <div class="conn-status">
+          <span class="dot dot-green pulse"></span>
+          <span id="connected-label">Connected</span>
+        </div>
+        <button id="btn-disconnect" class="btn-disconnect">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+          Disconnect
+        </button>
+      </div>
+    </aside>
+
+    <!-- Main content -->
+    <div class="app-body">
+
+      <!-- Mobile header -->
+      <header class="mob-bar">
+        <div class="mob-l">
+          <span class="dot dot-green pulse"></span>
+          <span id="connected-label-mob">Connected</span>
+          <span id="conn-count-mob" class="conn-count-mob"></span>
+        </div>
+        <span class="mob-title"><span class="grad">SmartShare</span></span>
+        <button id="btn-disconnect-mob" class="btn-x" aria-label="Disconnect">✕</button>
+      </header>
+
+      <!-- Mobile tabs -->
+      <nav class="mob-tabs">
+        <button class="tab active" data-tab="chat">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+          Chat
+        </button>
+        <button class="tab" data-tab="files">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><polyline points="13,2 13,9 20,9"/></svg>
+          Files
+        </button>
+        <button class="tab" data-tab="clipboard">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1"/></svg>
+          Clipboard
+        </button>
+        <button class="tab" data-tab="education">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
+          Edu
+        </button>
+      </nav>
+
+      <!-- Chat panel -->
+      <section id="tab-chat" class="tab-panel active">
+
+        <!-- Chat header — participants -->
+        <div class="chat-header" id="chat-header">
+          <div class="chat-header-avatars" id="chat-header-avatars">
+            <div class="cha-avatar cha-me" id="cha-avatar-me">
+              <span class="cha-initial" id="cha-initial-me">Y</span>
+            </div>
+          </div>
+          <div class="chat-header-info">
+            <div class="chat-header-names" id="chat-header-names">
+              <span class="chn-me" id="chn-name-me">You</span>
+            </div>
+            <div class="chat-header-status">
+              <span class="dot dot-green pulse"></span>
+              <span id="chat-header-label">Connected</span>
+            </div>
+          </div>
+          <div class="chat-header-badge">
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+            E2E Encrypted
+          </div>
+        </div>
+
+        <div id="chat-messages" class="msgs" aria-live="polite">
+          <!-- Empty state shown when no messages -->
+          <div class="chat-empty" id="chat-empty">
+            <div class="chat-empty-icon">
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+            </div>
+            <p class="chat-empty-title">Say hello 👋</p>
+            <p class="chat-empty-sub">Your messages are end-to-end encrypted</p>
+          </div>
+        </div>
+        <div id="typing-indicator" class="typing"></div>
+
+        <!-- Reply bar -->
+        <div id="reply-bar" class="reply-bar hidden">
+          <div class="reply-bar-body">
+            <div class="reply-bar-accent"></div>
+            <div class="reply-bar-content">
+              <span class="reply-bar-sender"></span>
+              <span class="reply-bar-text"></span>
+            </div>
+          </div>
+          <button id="reply-bar-close" class="reply-bar-close" aria-label="Cancel reply">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          </button>
+        </div>
+
+        <!-- Voice recording indicator -->
+        <div id="voice-indicator" class="voice-indicator hidden">
+          <span class="vi-dot"></span>
+          <span class="vi-label">Recording</span>
+          <span class="vi-dur">0:00</span>
+          <button id="btn-voice-cancel" class="vi-cancel" title="Cancel">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          </button>
+        </div>
+
+        <div class="chat-bar">
+          <!-- Theme toggle -->
+          <button id="theme-toggle-chat" class="btn-theme-chat" aria-label="Toggle theme" title="Toggle theme">
+            <svg id="theme-icon-chat" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+          </button>
+          <!-- Voice note button: hold on desktop, tap on mobile -->
+          <button id="btn-voice" class="btn-voice" title="Voice note (hold to record)" aria-label="Voice note">
+            <svg class="voice-mic-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
+          </button>
+          <input id="chat-input" type="text" placeholder="Message…" autocomplete="off"/>
+          <button id="btn-send" class="btn-send" aria-label="Send">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+          </button>
+        </div>
+      </section>
+
+      <!-- Files panel -->
+      <section id="tab-files" class="tab-panel hidden">
+        <div class="files-body">
+          <div id="drop-zone" class="drop-zone" role="button" tabindex="0" aria-label="Drop files here or click to browse">
+            <div class="dz-body">
+              <div class="dz-icon">
+                <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+              </div>
+              <p class="dz-h">Drop files here</p>
+              <p class="dz-s">or</p>
+              <label class="btn-browse">
+                Browse files
+                <input id="file-input" type="file" multiple hidden/>
+              </label>
+            </div>
+          </div>
+          <div id="transfer-list" class="tx-list"></div>
+        </div>
+      </section>
+
+      <!-- Clipboard panel -->
+      <section id="tab-clipboard" class="tab-panel hidden">
+        <div class="clip-body">
+          <div class="clip-acts">
+            <button id="btn-send-clip" class="btn btn-primary btn-sm">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 2 15 22 11 13 2 9 22 2"/></svg>
+              Send clipboard
+            </button>
+            <button id="btn-read-clip" class="btn btn-secondary btn-sm">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+              Read
+            </button>
+          </div>
+          <div id="clipboard-history" class="clip-hist" aria-live="polite"></div>
+          <div class="clip-compose">
+            <textarea id="clip-input" placeholder="Type or paste text to send…" rows="3"></textarea>
+            <button id="btn-send-clip-text" class="btn btn-primary btn-full">Send text</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- Education panel -->
+      <section id="tab-education" class="tab-panel hidden">
+        <!-- Built dynamically by EduModule.init() -->
+        <div class="edu-loading">
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
+          <p>Education module loading…</p>
+        </div>
+      </section>
+
+      <!-- Call bar (idle) -->
+      <div id="call-bar" class="call-bar">
+        <div class="call-info">
+          <div class="call-icon">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.36 12a19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 3.11 1.27h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.09 8.91A16 16 0 0 0 12 16l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 20 17z"/></svg>
+          </div>
+          <span class="call-bar-label">Start a call</span>
+        </div>
+        <div class="call-controls">
+          <button id="call-btn-audio" class="call-btn call-btn-start" title="Voice call">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.36 12a19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 3.11 1.27h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.09 8.91A16 16 0 0 0 12 16l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 20 17z"/></svg>
+            <span class="call-btn-label">Voice</span>
+          </button>
+          <button id="call-btn-video" class="call-btn call-btn-vid" title="Video call">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg>
+            <span class="call-btn-label">Video</span>
+          </button>
+        </div>
+      </div>
+
+    </div><!-- /app-body -->
+  </div><!-- /app-layout -->
+</div><!-- /app-screen -->
+
+<!-- HTTPS notice — shown only when on plain HTTP (mic/cam require HTTPS) -->
+<div id="https-notice" class="https-notice" role="alert">
+  ⚠️ You're on HTTP — microphone, camera, and screen share require HTTPS. Deploy with SSL or access via <strong>localhost</strong>.
+</div>
+
+<div id="toast-container" aria-live="assertive" aria-atomic="true"></div>
+
+<script>
+  // Show HTTPS notice if not on a secure context
+  (function() {
+    const secure = location.protocol === 'https:' ||
+                   location.hostname === 'localhost' ||
+                   location.hostname === '127.0.0.1' ||
+                   location.hostname === '::1' ||
+                   location.hostname.endsWith('.local');
+    if (!secure) {
+      document.getElementById('https-notice').classList.add('visible');
+      // Pad the body top so content isn't hidden under the bar
+      document.body.style.paddingTop = '36px';
+    }
+  })();
+</script>
+
+<!-- Minimized call PiP -->
+<div id="call-pip" class="call-pip hidden">
+  <div class="pip-video-wrap">
+    <video id="pip-video" class="pip-video" autoplay playsinline muted></video>
+    <div id="pip-avatar" class="pip-avatar">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="8" r="5"/><path d="M3 21v-1a9 9 0 0 1 18 0v1"/></svg>
+    </div>
+  </div>
+  <div class="pip-info">
+    <span id="pip-name" class="pip-name"></span>
+    <span id="pip-timer" class="pip-timer">00:00</span>
+  </div>
+  <div class="pip-actions">
+    <button id="pip-mute"   class="pip-btn" title="Mute">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/></svg>
+    </button>
+    <button id="pip-expand" class="pip-btn pip-btn-expand" title="Expand">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>
+    </button>
+    <button id="pip-end"    class="pip-btn pip-btn-end" title="End call">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M18.36 6.64A9 9 0 0 1 20.77 15H3.23a9 9 0 0 1 2.41-8.36l-.76-.77A10.43 10.43 0 0 0 2 14a1 1 0 0 0 1 1h18a1 1 0 0 0 1-1 10.43 10.43 0 0 0-2.88-7.13z"/></svg>
+    </button>
+  </div>
+</div>
+
+<script src="/src/network/socket.js"></script>
+<script src="/src/webrtc/connection.js"></script>
+<script src="/src/webrtc/channels.js"></script>
+<script src="/src/modules/chat.js"></script>
+<script src="/src/modules/files.js"></script>
+<script src="/src/modules/clipboard.js"></script>
+<script src="/src/modules/qr.js"></script>
+<script src="/src/ui/layout.js"></script>
+<script src="/src/modules/call.js"></script>
+<script src="/src/app.js"></script>
+  <script src="/src/modules/education.js"></script>
+</body>
+</html>

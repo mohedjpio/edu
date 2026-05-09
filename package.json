@@ -1,0 +1,23 @@
+{
+  "name": "smartshare",
+  "version": "1.0.0",
+  "description": "Secure P2P sharing — chat, files, clipboard. Deploy anywhere.",
+  "main": "index.js",
+  "scripts": {
+    "start": "node server/index.js",
+    "dev": "node server/index.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "cors": "^2.8.6",
+    "express": "^5.2.1",
+    "qrcode": "^1.5.4",
+    "uuid": "^13.0.0",
+    "ws": "^8.20.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
