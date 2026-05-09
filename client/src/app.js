@@ -9,10 +9,11 @@
   let _myName    = 'You';
   let _roomId    = null;
 
-  window._getMode      = () => _mode;
-  window._getPeerName  = (id) => _peerNames[id] || 'Peer';
+  window._getMode     = () => _mode;
+  window._getPeerName = (id) => _peerNames[id] || 'Peer';
   window._updatePeerName = (id, name) => {
     _peerNames[id] = name;
+    // Keep me-name fresh before re-render
     const meInit = document.getElementById('cha-initial-me');
     const meName = document.getElementById('chn-name-me');
     if (meInit) meInit.textContent = (_myName[0] || 'Y').toUpperCase();
@@ -22,15 +23,15 @@
 
   UI.initTabs();
 
-  /* ── Online/offline status ── */
   function updateNetMode() {
-    UI.setMode(navigator.onLine ? 'Online' : 'Offline', navigator.onLine ? 'green' : 'amber');
+    UI.setMode(navigator.onLine ? 'Online' : 'LAN', navigator.onLine ? 'green' : 'yellow');
   }
   updateNetMode();
   window.addEventListener('online',  updateNetMode);
   window.addEventListener('offline', updateNetMode);
 
-  /* ── Signaling handlers ── */
+  // ── Signaling handlers ─────────────────────────────────────────────────────
+
   SignalingSocket.on('joined', async (msg) => {
     _myPeerId = msg.peerId;
     _mode     = msg.mode || 'p2p';
@@ -38,29 +39,37 @@
     RTCManager.init(msg.peerId, msg.iceServers, _mode);
 
     const existing = msg.peers || [];
-    console.log(`[app] joined room=${msg.roomId} mode=${_mode} peers=${existing.length}`);
+    console.log(`[app] joined room=${msg.roomId} mode=${_mode} existing=${existing.length}`);
 
+    // Init education module once we have our peer identity
     if (!window._eduReady && window.EduModule) {
-      const eduRole = document.getElementById('edu-role-select')?.value || 'student';
+      const eduRole = (document.getElementById('edu-role-select')?.value) || 'student';
       window.EduModule.init(_myPeerId, msg.name || _myName, eduRole);
       window._eduReady = true;
     }
 
     if (_mode === 'group') {
+      // FULL MESH: newcomer offers existing peers where newcomer has LOWER uuid
+      // Existing peers offer newcomer (via peer_joined) where they have LOWER uuid
+      // This guarantees exactly 1 offer per pair, no glare
       for (const p of existing) {
         _peerNames[p.id] = p.name;
         if (_myPeerId < p.id) {
-          console.log(`[app] group: offering ${p.id.slice(0,6)}`);
+          console.log(`[app] group: I(${_myPeerId.slice(0,6)}) < peer(${p.id.slice(0,6)}) → offering`);
           await RTCManager.createOffer(p.id);
+        } else {
+          console.log(`[app] group: I(${_myPeerId.slice(0,6)}) > peer(${p.id.slice(0,6)}) → waiting for their offer`);
         }
       }
     } else {
+      // P2P: initiator (creator) offers whoever is already in the room
       if (_isInit) {
         for (const p of existing) {
           _peerNames[p.id] = p.name;
           await RTCManager.createOffer(p.id);
         }
       }
+      // Guest: waits for creator's offer via 'peer_joined' → creator calls createOffer
     }
   });
 
@@ -69,24 +78,30 @@
     UI.setPeerStatus(`${_peerNames[msg.peerId]} joining…`);
     UI.updatePeerList(_peerNames);
 
+    // Init education module once we have our peer identity
     if (!window._eduReady && window.EduModule) {
-      const eduRole = document.getElementById('edu-role-select')?.value || 'student';
+      const eduRole = (document.getElementById('edu-role-select')?.value) || 'student';
       window.EduModule.init(_myPeerId, msg.name || _myName, eduRole);
       window._eduReady = true;
     }
 
     if (_mode === 'group') {
+      // Same tie-break: if MY uuid is lower → I offer the newcomer
       if (_myPeerId < msg.peerId) {
+        console.log(`[app] group peer_joined: I(${_myPeerId.slice(0,6)}) < new(${msg.peerId.slice(0,6)}) → offering`);
         await RTCManager.createOffer(msg.peerId);
+      } else {
+        console.log(`[app] group peer_joined: new(${msg.peerId.slice(0,6)}) < I(${_myPeerId.slice(0,6)}) → they will offer me`);
       }
     } else {
+      // P2P: only the creator (initiator) sends offers
       if (_isInit) {
         await RTCManager.createOffer(msg.peerId);
       }
     }
   });
 
-  SignalingSocket.on('offer', (msg) => {
+  SignalingSocket.on('offer',         (msg) => {
     if (!_peerNames[msg.from]) _peerNames[msg.from] = 'Peer';
     RTCManager.handleOffer(msg.payload, msg.from);
   });
@@ -94,8 +109,11 @@
   SignalingSocket.on('ice-candidate', (msg) => RTCManager.handleIceCandidate(msg.payload, msg.from));
   SignalingSocket.on('call-signal',   (msg) => CallModule.handleSignal(msg.payload, msg.from));
 
+  // Route education data messages
   window._routeEduMsg = (from, data) => {
-    if (window.EduModule && data?.type === 'edu:msg') EduModule.onPeerData(from, data);
+    if (window.EduModule && data?.type === 'edu:msg') {
+      EduModule.onPeerData(from, data);
+    }
   };
 
   SignalingSocket.on('peer_left', (msg) => {
@@ -119,19 +137,20 @@
     UI.toast(msg.message || 'Server error', 'error');
   });
 
-  /* ── WebRTC events ── */
+  // ── WebRTC events ──────────────────────────────────────────────────────────
+
   RTCManager.on('channel', (ch, fromPeerId) => {
     console.log(`[app] channel label=${ch.label} peer=${fromPeerId.slice(0,8)}`);
     Channels.register(ch, fromPeerId);
   });
 
-  RTCManager.on('track',             (event, peerId) => CallModule.onRemoteTrack(event, peerId));
-  RTCManager.on('peer_disconnected', (_pid)           => { /* handled via peer_left */ });
+  RTCManager.on('track',            (event, peerId) => CallModule.onRemoteTrack(event, peerId));
+  RTCManager.on('peer_disconnected', (_pid)          => { /* handled via peer_left */ });
 
   RTCManager.on('peer_connected', (peerId) => {
     _connCount++;
 
-    // Send hello message to exchange names over data channel
+    // Send our name as soon as the chat channel is open (retry up to 3s)
     const _sendHello = (attempts) => {
       if (Channels.isOpenTo(peerId, Channels.LABELS.CHAT)) {
         Channels.sendToJSON(peerId, Channels.LABELS.CHAT, { type: 'hello', name: _myName });
@@ -143,7 +162,9 @@
 
     const name = _peerNames[peerId] || 'Peer';
     console.log(`[app] CONNECTED peer=${peerId.slice(0,8)} name=${name} total=${_connCount}`);
+    console.log(`[app] open channels:`, Channels.debug());
 
+    // Always keep "me" name fresh in the header before peer list renders
     const meInit = document.getElementById('cha-initial-me');
     const meName = document.getElementById('chn-name-me');
     if (meInit) meInit.textContent = (_myName[0] || 'Y').toUpperCase();
@@ -151,7 +172,6 @@
 
     UI.updateConnCount(_connCount);
     UI.updatePeerList(_peerNames);
-
     if (_connCount === 1) {
       UI.showScreen('app-screen');
       UI.toast(_mode === 'group' ? `${name} joined the group` : 'Connected — secure P2P');
@@ -162,12 +182,12 @@
     }
   });
 
-  /* ── Create room ── */
+  // ── Create room ────────────────────────────────────────────────────────────
+
   document.getElementById('btn-create')?.addEventListener('click', async () => {
-    const nameInput = document.getElementById('my-name-input');
     _isInit    = true;
     _connCount = 0;
-    _myName    = nameInput?.value.trim() || 'Host';
+    _myName    = document.getElementById('my-name-input')?.value.trim() || 'Host';
 
     let roomId;
     try {
@@ -176,11 +196,9 @@
         headers: { 'content-type': 'application/json' },
         body:    JSON.stringify({ mode: _mode }),
       });
-      if (!res.ok) throw new Error(`Server error: ${res.status}`);
       ({ roomId } = await res.json());
-    } catch (e) {
-      UI.toast('Failed to create room — check your connection: ' + e.message, 'error');
-      return;
+    } catch(e) {
+      UI.toast('Failed to create room — check connection', 'error'); return;
     }
 
     await QRModule.generate(roomId, _mode);
@@ -191,7 +209,8 @@
     });
   });
 
-  /* ── Join room ── */
+  // ── Join room ──────────────────────────────────────────────────────────────
+
   function joinRoom(rawId) {
     _isInit    = false;
     _connCount = 0;
@@ -203,7 +222,7 @@
       const m = u.searchParams.get('mode');
       if (m === 'group' || m === 'p2p') _mode = m;
       roomId = u.searchParams.get('room') || roomId;
-    } catch (_) {}
+    } catch(_) {}
 
     if (!roomId) { UI.toast('Enter a room URL or ID', 'error'); return; }
 
@@ -219,7 +238,8 @@
     if (e.key === 'Enter') joinRoom(document.getElementById('room-input').value);
   });
 
-  /* ── Disconnect ── */
+  // ── Disconnect (explicit only) ─────────────────────────────────────────────
+
   function doDisconnect() {
     _connCount = 0;
     _isInit    = false;
@@ -234,10 +254,11 @@
     UI.showModeSelect();
   }
 
-  document.getElementById('btn-disconnect')?.addEventListener('click',     doDisconnect);
+  document.getElementById('btn-disconnect')?.addEventListener('click', doDisconnect);
   document.getElementById('btn-disconnect-mob')?.addEventListener('click', doDisconnect);
 
-  /* ── Mode selection ── */
+  // ── Mode selection ─────────────────────────────────────────────────────────
+
   document.querySelectorAll('.mode-card').forEach(card => {
     card.addEventListener('click', () => {
       document.querySelectorAll('.mode-card').forEach(c => c.classList.remove('selected'));
@@ -247,7 +268,7 @@
     });
   });
 
-  /* ── Pricing toggle ── */
+  // ── Pricing toggle ─────────────────────────────────────────────────────────
   document.getElementById('tab-monthly')?.addEventListener('click', () => {
     document.getElementById('tab-monthly')?.classList.add('active');
     document.getElementById('tab-yearly')?.classList.remove('active');
@@ -259,20 +280,21 @@
     const el = document.getElementById('pro-price'); if (el) el.textContent = '7';
   });
 
-  /* ── Init modules ── */
+  // ── Init modules ───────────────────────────────────────────────────────────
   ChatModule.init(() => _mode, () => _myName, () => _peerNames);
   FilesModule.init(() => _mode);
   ClipboardModule.init();
   CallModule.init();
 
+  // ── Education Module ────────────────────────────────────────────────────────
+  // Defer init until after user joins a room (so we have peerId + name)
   window._eduReady = false;
 
-  /* ── Auto-join from QR link ── */
+  // ── Auto-join from QR ──────────────────────────────────────────────────────
   const urlRoom = QRModule.getRoomFromUrl();
   if (urlRoom) {
     UI.showScreen('connect-screen');
-    const ri = document.getElementById('room-input');
-    if (ri) ri.value = urlRoom;
+    document.getElementById('room-input').value = urlRoom;
     UI.showJoinPanel();
     setTimeout(() => joinRoom(urlRoom), 150);
   }

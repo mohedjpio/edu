@@ -12,7 +12,7 @@ window.SignalingSocket = (() => {
   function connect(url, onOpen) {
     if (ws) {
       ws.onclose = null; ws.onerror = null;
-      try { ws.close(1000, 'reconnect'); } catch (_) {}
+      try { ws.close(1000, 'reconnect'); } catch(_) {}
       ws = null;
     }
     clearTimeout(reconnTimer);
@@ -26,36 +26,36 @@ window.SignalingSocket = (() => {
 
   function _open() {
     if (_stopped) return;
-    try { ws = new WebSocket(_url); }
-    catch (e) { console.error('[ws] bad URL:', e); return; }
+    try { ws = new WebSocket(_url); } catch(e) {
+      console.error('[ws] bad URL:', e); return;
+    }
 
+    // Mobile: shorter timeout — cellular can be slow to establish
     ws.binaryType = 'arraybuffer';
 
     ws.onopen = () => {
-      console.log('[ws] connected to', _url);
+      console.log('[ws] connected');
       reconnDelay = 1500;
       if (_onOpen) _onOpen();
     };
 
     ws.onmessage = (e) => {
       let m; try { m = JSON.parse(e.data); } catch { return; }
-      console.log('[ws] recv:', m.type);
       if (m.type === 'joined') _joined = true;
       const fn = handlers[m.type];
-      if (fn) fn(m);
-      else console.warn('[ws] unhandled msg type:', m.type);
+      if (fn) fn(m); else console.warn('[ws] unhandled:', m.type);
     };
 
     ws.onclose = (ev) => {
       if (_stopped) return;
-      console.log('[ws] closed', ev.code, ev.reason || '');
+      console.log('[ws] closed', ev.code, ev.reason);
+      // Don't auto-reconnect after successful join (prevents ghost peer bug)
       if (_joined) {
-        console.log('[ws] already joined — no auto-reconnect (prevents ghost peer)');
+        console.log('[ws] joined — no auto-reconnect');
         return;
       }
-      // Retry with backoff for pre-join connection failures
+      // Retry with backoff for pre-join failures
       if (ev.code !== 1000) {
-        console.log(`[ws] retrying in ${reconnDelay}ms`);
         reconnTimer = setTimeout(() => {
           reconnDelay = Math.min(reconnDelay * 1.6, 12000);
           _open();
@@ -64,17 +64,14 @@ window.SignalingSocket = (() => {
     };
 
     ws.onerror = (e) => {
-      // WebSocket error events don't expose useful messages in browsers
-      console.warn('[ws] error event (check network/server)');
+      console.warn('[ws] error:', e.message || e);
     };
   }
 
   function send(payload) {
     if (ws && ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify(payload));
-      return true;
+      ws.send(JSON.stringify(payload)); return true;
     }
-    console.warn('[ws] send failed — not open. readyState:', ws?.readyState);
     return false;
   }
 
@@ -84,11 +81,7 @@ window.SignalingSocket = (() => {
     _stopped = true;
     _joined  = false;
     clearTimeout(reconnTimer);
-    if (ws) {
-      ws.onclose = null; ws.onerror = null;
-      ws.close(1000, 'disconnect');
-      ws = null;
-    }
+    if (ws) { ws.onclose = null; ws.onerror = null; ws.close(1000, 'disconnect'); ws = null; }
   }
 
   function isConnected() { return !!(ws && ws.readyState === WebSocket.OPEN); }

@@ -883,312 +883,316 @@ body{
 
 <script>
 /* ═══════════════════════════════════════════════════════
-   EduMeet — Core Application Logic
-   Self-contained · Works with SmartShare signaling server
+   EduMeet — Core Application Logic  (fully audited)
+   · Correct WS message types matching server (offer/answer/ice-candidate/leave)
+   · Data channel: only offerer creates it; answerer receives via ondatachannel
+   · No double-send (DC only; WS is signaling-only)
+   · Stable video grid (patch DOM, never rebuild existing cells)
+   · Clipboard fallback for HTTP contexts
+   · Event listeners registered once, not per screen transition
+   · cleanupPeer only on failed/closed, not disconnected (ICE restart safe)
+   · leaveRoom sends 'leave' to server
 ═══════════════════════════════════════════════════════ */
 'use strict';
 
 /* ── Helpers ── */
 const $ = id => document.getElementById(id);
 const uid = () => Math.random().toString(36).slice(2,10);
-const fmt = ms => {
-  const d = new Date(ms);
-  return d.toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit'});
-};
-const fmtDuration = s => {
-  const m = Math.floor(s/60), ss = s%60;
-  return `${String(m).padStart(2,'0')}:${String(ss).padStart(2,'0')}`;
-};
+const fmtTime = ms => new Date(ms).toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit'});
+const fmtDur  = s  => `${String(Math.floor(s/60)).padStart(2,'0')}:${String(s%60).padStart(2,'0')}`;
 
-function showToast(msg, dur=2800) {
-  const t = document.createElement('div');
+function showToast(msg, dur=2800){
+  const t=document.createElement('div');
   t.className='toast'; t.textContent=msg;
   document.body.appendChild(t);
-  setTimeout(()=>t.remove(),dur);
+  setTimeout(()=>t.remove(), dur);
 }
 
-/* ── State ── */
-let _myName    = '';
-let _myRole    = 'student';
-let _myPeerId  = null;
-let _roomId    = null;
-let _className = 'EduMeet Class';
+function copyText(text){
+  if(navigator.clipboard?.writeText){
+    navigator.clipboard.writeText(text).then(()=>showToast('📋 Copied!')).catch(()=>fallbackCopy(text));
+  } else { fallbackCopy(text); }
+}
+function fallbackCopy(text){
+  const ta=document.createElement('textarea');
+  ta.value=text; ta.style.cssText='position:fixed;opacity:0';
+  document.body.appendChild(ta); ta.select();
+  document.execCommand('copy'); ta.remove();
+  showToast('📋 Copied!');
+}
 
-let _micOn = true;
-let _camOn = true;
-let _handUp = false;
-let _screenSharing = false;
+/* ══════════════════════════════════════════════════════
+   STATE
+══════════════════════════════════════════════════════ */
+let _myName   = '';
+let _myRole   = 'student';   // 'student' | 'instructor'
+let _myPeerId = null;
+let _roomId   = null;
+let _className= 'EduMeet Class';
 
-let _localStream   = null;  // cam+mic
-let _screenStream  = null;  // screen
-let _previewStream = null;  // pre-join preview
+let _micOn        = true;
+let _camOn        = true;
+let _handUp       = false;
+let _screenSharing= false;
 
-let _peerConns = {};  // peerId → RTCPeerConnection
-let _peerStreams = {}; // peerId → MediaStream
-let _peerNames = {};   // peerId → name
-let _peerRoles = {};   // peerId → role
-let _peerMuted = {};   // peerId → bool
-let _peerCamOff = {};  // peerId → bool
-let _peerHands = {};   // peerId → bool
+let _localStream  = null;   // cam+mic MediaStream (may be null if denied)
+let _screenStream = null;   // screen-share MediaStream
+let _previewStream= null;   // pre-join preview stream
 
-let _ws = null;
-let _iceServers = [];
+// peerId → RTCPeerConnection
+const _peerConns  = {};
+// peerId → MediaStream  (remote)
+const _peerStreams = {};
+// peerId → string (name)
+const _peerNames  = {};
+// peerId → string ('student'|'instructor')
+const _peerRoles  = {};
+// peerId → bool (muted)
+const _peerMuted  = {};
+// peerId → bool (cam off)
+const _peerCamOff = {};
+// peerId → bool (hand raised)
+const _peerHands  = {};
+// peerId → RTCDataChannel (the ONE open channel per peer)
+const _peerDCs    = {};
+
+let _ws           = null;
+let _iceServers   = [];
 let _sessionStart = null;
-let _timerIv = null;
+let _timerIv      = null;
 
-// Attendance
-let _students = new Map(); // peerId → {name, role, joinedAt, present}
-let _chatHistory = [];
+// Attendance: peerId → {name, role, joinedAt, present}
+const _students = new Map();
+const _chatHistory = [];
 
-// Poll
-let _activePoll = null;
-let _myPollVote = null;
-let _pollVotes = new Map(); // optionIdx → count
+let _activePoll  = null;
+let _myPollVote  = null;
 
-/* ── ICE config ── */
 const DEFAULT_ICE = [
   {urls:'stun:stun.l.google.com:19302'},
-  {urls:'stun:stun1.l.google.com:19302'}
+  {urls:'stun:stun1.l.google.com:19302'},
+  {urls:'stun:stun2.l.google.com:19302'},
 ];
 
 /* ══════════════════════════════════════════════════════
-   SCREEN 1 — LANDING LOGIC
+   SCREEN SWITCHER
+══════════════════════════════════════════════════════ */
+function showScreen(name){
+  document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));
+  $('screen-'+name).classList.add('active');
+  $('back-link').style.display = name==='meet'?'none':'flex';
+}
+
+/* ══════════════════════════════════════════════════════
+   SCREEN 1 — LANDING
 ══════════════════════════════════════════════════════ */
 (function initLanding(){
-  // Role cards
+  // Role card selection
   document.querySelectorAll('.role-card').forEach(card=>{
     card.addEventListener('click',()=>{
       document.querySelectorAll('.role-card').forEach(c=>c.classList.remove('selected'));
       card.classList.add('selected');
       _myRole = card.dataset.role;
       $('btn-create-label').textContent = _myRole==='instructor'
-        ? '🚀 Create Class Room'
-        : '📚 Create Study Room';
+        ? '🚀 Create Class Room' : '📚 Create Study Room';
     });
   });
 
-  // Autofill name from URL
-  const url = new URL(location.href);
-  const joinRoom = url.searchParams.get('r') || url.searchParams.get('room');
-  if(joinRoom){
-    $('join-room-input').value = joinRoom;
-  }
-
-  // Create room
   $('btn-create-room').addEventListener('click',()=>{
-    const name = $('name-input').value.trim();
-    if(!name){ showToast('Please enter your name first'); $('name-input').focus(); return; }
-    _myName = name;
-    _roomId = uid();
+    const name=$('name-input').value.trim();
+    if(!name){ showToast('Please enter your name'); $('name-input').focus(); return; }
+    _myName    = name;
+    _roomId    = uid();
     _className = _myRole==='instructor' ? `${name}'s Class` : 'Study Room';
     goToPreJoin(true);
   });
 
-  // Join room
   $('btn-join-room').addEventListener('click',()=>{
-    const name = $('name-input').value.trim();
-    if(!name){ showToast('Please enter your name first'); $('name-input').focus(); return; }
-    let roomVal = $('join-room-input').value.trim();
-    if(!roomVal){ showToast('Please enter a room ID or link'); return; }
-    // Extract room id from URL if pasted
+    const name=$('name-input').value.trim();
+    if(!name){ showToast('Please enter your name'); $('name-input').focus(); return; }
+    let rv = $('join-room-input').value.trim();
+    if(!rv){ showToast('Please enter a room ID or link'); return; }
     try{
-      const u = new URL(roomVal);
-      roomVal = u.searchParams.get('r') || u.searchParams.get('room') || u.pathname.split('/').pop() || roomVal;
-    }catch(e){ /* raw ID, fine */ }
-    _myName = name;
-    _roomId = roomVal;
+      const u=new URL(rv);
+      rv = u.searchParams.get('r')||u.searchParams.get('room')||u.pathname.split('/').pop()||rv;
+    }catch{}
+    _myName    = name;
+    _roomId    = rv;
     _className = 'Joined Class';
     goToPreJoin(false);
   });
+
+  // Auto-fill room from URL
+  const urlRoom = new URLSearchParams(location.search).get('r')
+                ||new URLSearchParams(location.search).get('room');
+  if(urlRoom) $('join-room-input').value = urlRoom;
 })();
 
 /* ══════════════════════════════════════════════════════
    SCREEN 2 — PRE-JOIN LOBBY
 ══════════════════════════════════════════════════════ */
-async function goToPreJoin(creating) {
+let _prejoinListenersAttached = false;
+
+async function goToPreJoin(creating){
   showScreen('prejoin');
 
-  $('prejoin-title').textContent = creating ? 'Set up your class' : 'Ready to join?';
+  $('prejoin-title').textContent    = creating ? 'Set up your class' : 'Ready to join?';
   $('prejoin-class-name').textContent = creating ? '✨ New Class Room' : `Joining: ${_roomId}`;
   $('prejoin-name-display').textContent = _myName;
-  $('prejoin-role-badge').textContent = _myRole==='instructor'? '🎓 Instructor':'👤 Student';
-  $('prejoin-role-badge').style.background = _myRole==='instructor'?'rgba(10,186,181,.15)':'rgba(255,255,255,.06)';
+  $('prejoin-role-badge').textContent   = _myRole==='instructor'?'🎓 Instructor':'👤 Student';
+  $('prejoin-role-badge').style.background = _myRole==='instructor'
+    ?'rgba(10,186,181,.15)':'rgba(255,255,255,.06)';
   $('prejoin-room-id').textContent = _roomId;
-  $('preview-avatar-name').textContent = _myName;
-  $('preview-avatar-circle').textContent = _myName[0]?.toUpperCase()||'?';
+  $('preview-avatar-name').textContent   = _myName;
+  $('preview-avatar-circle').textContent = (_myName[0]||'?').toUpperCase();
 
-  // Enumerate devices — graceful, never blocks on denial
-  try {
-    const devices = await navigator.mediaDevices.enumerateDevices();
-    populateDevices(devices);
-    // If labels are blank (no prior permission), try silent permission requests
-    if (devices.every(d => !d.label)) {
-      navigator.mediaDevices.getUserMedia({audio:true, video:true})
-        .then(() => navigator.mediaDevices.enumerateDevices().then(populateDevices))
-        .catch(() =>
-          navigator.mediaDevices.getUserMedia({audio:true})
-            .then(() => navigator.mediaDevices.enumerateDevices().then(populateDevices))
-            .catch(() => {}) // fully denied — labels stay empty, proceed anyway
-        );
+  // Enumerate devices without blocking
+  try{
+    const devs = await navigator.mediaDevices.enumerateDevices();
+    populateDevices(devs);
+    if(devs.every(d=>!d.label)){
+      // No labels yet — request permission in background
+      navigator.mediaDevices.getUserMedia({audio:true,video:true})
+        .then(()=>navigator.mediaDevices.enumerateDevices().then(populateDevices))
+        .catch(()=>navigator.mediaDevices.getUserMedia({audio:true})
+          .then(()=>navigator.mediaDevices.enumerateDevices().then(populateDevices))
+          .catch(()=>{}));
     }
-  } catch(e) {
-    console.warn('Device enum skipped:', e);
-  }
+  }catch(e){ console.warn('enumerateDevices failed',e); }
 
   await startPreview();
   updatePreviewState();
 
-  $('toggle-mic-pre').addEventListener('click',()=>{ _micOn=!_micOn; updatePreviewState(); });
-  $('toggle-cam-pre').addEventListener('click',()=>{ _camOn=!_camOn; updatePreviewState(); });
-  $('test-speaker').addEventListener('click',()=>{
-    const ctx = new AudioContext();
-    const o = ctx.createOscillator(); const g = ctx.createGain();
-    o.connect(g); g.connect(ctx.destination);
-    g.gain.setValueAtTime(0.2,ctx.currentTime);
-    g.gain.exponentialRampToValueAtTime(0.001,ctx.currentTime+0.5);
-    o.frequency.setValueAtTime(440,ctx.currentTime);
-    o.start(ctx.currentTime); o.stop(ctx.currentTime+0.5);
-    showToast('🔊 Speaker test');
-  });
+  // Wire pre-join events ONCE only
+  if(!_prejoinListenersAttached){
+    _prejoinListenersAttached = true;
 
-  $('btn-enter-meet').addEventListener('click', enterMeeting);
+    $('toggle-mic-pre').addEventListener('click',()=>{ _micOn=!_micOn; updatePreviewState(); });
+    $('toggle-cam-pre').addEventListener('click',()=>{ _camOn=!_camOn; updatePreviewState(); });
+
+    $('test-speaker').addEventListener('click',()=>{
+      try{
+        const ctx=new AudioContext();
+        const o=ctx.createOscillator(), g=ctx.createGain();
+        o.connect(g); g.connect(ctx.destination);
+        g.gain.setValueAtTime(0.25,ctx.currentTime);
+        g.gain.exponentialRampToValueAtTime(0.001,ctx.currentTime+0.6);
+        o.frequency.value=440; o.start(); o.stop(ctx.currentTime+0.6);
+        showToast('🔊 Speaker test tone played');
+      }catch{ showToast('Speaker test unavailable'); }
+    });
+
+    $('btn-enter-meet').addEventListener('click', enterMeeting);
+  }
 }
 
 function populateDevices(devices){
-  const mics = devices.filter(d=>d.kind==='audioinput');
-  const cams = devices.filter(d=>d.kind==='videoinput');
-  const spks = devices.filter(d=>d.kind==='audiooutput');
-  ['sel-mic','sel-cam','sel-spk'].forEach(id=>{ $(id).innerHTML=''; });
-  mics.forEach((d,i)=>{ const o=document.createElement('option');o.value=d.deviceId;o.textContent=d.label||`Microphone ${i+1}`;$('sel-mic').appendChild(o); });
-  cams.forEach((d,i)=>{ const o=document.createElement('option');o.value=d.deviceId;o.textContent=d.label||`Camera ${i+1}`;$('sel-cam').appendChild(o); });
-  spks.forEach((d,i)=>{ const o=document.createElement('option');o.value=d.deviceId;o.textContent=d.label||`Speaker ${i+1}`;$('sel-spk').appendChild(o); });
-  if(!mics.length) { const o=document.createElement('option');o.textContent='Default microphone';$('sel-mic').appendChild(o); }
-  if(!cams.length) { const o=document.createElement('option');o.textContent='Default camera';$('sel-cam').appendChild(o); }
-  if(!spks.length) { const o=document.createElement('option');o.textContent='Default speaker';$('sel-spk').appendChild(o); }
+  const mics=devices.filter(d=>d.kind==='audioinput');
+  const cams=devices.filter(d=>d.kind==='videoinput');
+  const spks=devices.filter(d=>d.kind==='audiooutput');
+  for(const [id,list,fb] of [['sel-mic',mics,'Default microphone'],['sel-cam',cams,'Default camera'],['sel-spk',spks,'Default speaker']]){
+    const sel=$(id); sel.innerHTML='';
+    const items = list.length ? list : [{deviceId:'',label:fb}];
+    items.forEach((d,i)=>{
+      const o=document.createElement('option');
+      o.value=d.deviceId; o.textContent=d.label||`Device ${i+1}`;
+      sel.appendChild(o);
+    });
+  }
 }
 
 async function startPreview(){
   if(_previewStream){ _previewStream.getTracks().forEach(t=>t.stop()); _previewStream=null; }
+  const aConst={echoCancellation:true,noiseSuppression:true,autoGainControl:true};
+  const vConst={width:{ideal:1280},height:{ideal:720},facingMode:'user'};
 
-  const audioConstraints = {echoCancellation:true,noiseSuppression:true,autoGainControl:true};
-  const videoConstraints = {width:{ideal:1280},height:{ideal:720},facingMode:'user'};
-
-  // Try cam + mic together first
-  try {
-    _previewStream = await navigator.mediaDevices.getUserMedia({audio:audioConstraints, video:videoConstraints});
-  } catch(e1) {
-    // Cam+mic failed — try mic only
-    try {
-      _previewStream = await navigator.mediaDevices.getUserMedia({audio:audioConstraints, video:false});
-      _camOn = false;
-      showDeviceWarning('camera');
-    } catch(e2) {
-      // Mic failed too — try cam only
-      try {
-        _previewStream = await navigator.mediaDevices.getUserMedia({audio:false, video:videoConstraints});
-        _micOn = false;
-        showDeviceWarning('microphone');
-      } catch(e3) {
-        // Nothing available — join muted with no video (still functional as viewer)
-        _micOn = false;
-        _camOn = false;
-        _previewStream = null;
-        showDeviceWarning('both');
-        console.warn('No media devices available — joining as viewer');
+  // Progressive fallback: cam+mic → mic-only → cam-only → nothing
+  try{
+    _previewStream=await navigator.mediaDevices.getUserMedia({audio:aConst,video:vConst});
+  }catch{
+    try{
+      _previewStream=await navigator.mediaDevices.getUserMedia({audio:aConst,video:false});
+      _camOn=false; showDeviceWarning('camera');
+    }catch{
+      try{
+        _previewStream=await navigator.mediaDevices.getUserMedia({audio:false,video:vConst});
+        _micOn=false; showDeviceWarning('microphone');
+      }catch{
+        _micOn=false; _camOn=false; _previewStream=null; showDeviceWarning('both');
       }
     }
   }
-
   if(_previewStream){
-    const vid = $('preview-video');
-    vid.srcObject = _previewStream;
-    vid.play().catch(()=>{});
+    const v=$('preview-video');
+    v.srcObject=_previewStream; v.play().catch(()=>{});
   }
 }
 
-// Friendly device warning in lobby — NOT a blocking error
 function showDeviceWarning(which){
-  const messages = {
-    camera:      '📷 Camera not available — joining with audio only',
-    microphone:  '🎤 Microphone not available — joining with video only',
-    both:        '⚠️ No camera or mic found — joining as view-only participant'
+  const msgs={
+    camera:'📷 Camera not available — joining with audio only',
+    microphone:'🎤 Microphone blocked — joining with video only',
+    both:'⚠️ No camera or mic — joining as view-only'
   };
-  const el = $('device-warning');
-  if(el){ el.textContent = messages[which]; el.style.display='flex'; }
+  const el=$('device-warning');
+  if(el){ el.textContent=msgs[which]; el.style.display='flex'; }
 }
 
 function updatePreviewState(){
-  const bt=$('toggle-mic-pre'), bc=$('toggle-cam-pre');
+  const micBtn=$('toggle-mic-pre'), camBtn=$('toggle-cam-pre');
+  micBtn.classList.toggle('off',!_micOn);
+  camBtn.classList.toggle('off',!_camOn);
 
-  bt.classList.toggle('off',!_micOn);
-  bt.title=_micOn?'Mute microphone':'Unmute microphone';
-  bt.innerHTML=_micOn
+  micBtn.innerHTML=_micOn
     ?`<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>`
     :`<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="1" y1="1" x2="23" y2="23"/><path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6"/><path d="M17 16.95A7 7 0 0 1 5 12v-2m14 0v2a7 7 0 0 1-.11 1.23"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>`;
 
-  bc.classList.toggle('off',!_camOn);
-  bc.title=_camOn?'Turn off camera':'Turn on camera';
+  camBtn.innerHTML=_camOn
+    ?`<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg>`
+    :`<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="1" y1="1" x2="23" y2="23"/><path d="M21 21H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h3m3-3h6l2 3h4a2 2 0 0 1 2 2v9.34"/><polygon points="23 7 16 12 23 17 23 7"/></svg>`;
 
-  // Mute/unmute preview audio tracks
   if(_previewStream){
     _previewStream.getAudioTracks().forEach(t=>t.enabled=_micOn);
     _previewStream.getVideoTracks().forEach(t=>t.enabled=_camOn);
   }
+  const v=$('preview-video'), av=$('preview-avatar'), lbl=$('preview-cam-label');
+  v.style.display   = _camOn&&_previewStream?.getVideoTracks().length?'block':'none';
+  av.style.display  = (v.style.display==='none')?'flex':'none';
+  if(lbl) lbl.style.display = (v.style.display==='none')?'block':'none';
 
-  const vid=$('preview-video');
-  const av=$('preview-avatar');
-  const lbl=$('preview-cam-label');
-  vid.style.display=_camOn?'block':'none';
-  av.style.display=_camOn?'none':'flex';
-  lbl.style.display=_camOn?'none':'block';
-
-  // Chips
   const mc=$('mic-state-chip'), cc=$('cam-state-chip');
-  mc.style.color=_micOn?'var(--green)':'var(--red)';
-  mc.innerHTML=`<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/></svg>${_micOn?'Mic On':'Mic Off'}`;
-  cc.style.color=_camOn?'var(--green)':'var(--red)';
-  cc.innerHTML=`<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg>${_camOn?'Camera On':'Camera Off'}`;
+  if(mc){ mc.style.color=_micOn?'var(--green)':'var(--red)'; mc.childNodes[mc.childNodes.length-1].textContent=_micOn?' Mic On':' Mic Off'; }
+  if(cc){ cc.style.color=_camOn?'var(--green)':'var(--red)'; cc.childNodes[cc.childNodes.length-1].textContent=_camOn?' Cam On':' Cam Off'; }
 }
 
 /* ══════════════════════════════════════════════════════
-   ENTER MEETING — Build local stream & join
+   ENTER MEETING
 ══════════════════════════════════════════════════════ */
 async function enterMeeting(){
-  $('btn-enter-meet').disabled=true;
-  $('btn-enter-meet').textContent='Connecting…';
+  const btn=$('btn-enter-meet');
+  btn.disabled=true; btn.textContent='Connecting…';
 
-  // Build final local stream — gracefully degrading, NEVER blocks entry
-  const camId = $('sel-cam').value, micId = $('sel-mic').value;
-  const audioC = micId
-    ? {deviceId:{exact:micId},echoCancellation:true,noiseSuppression:true,autoGainControl:true}
-    : {echoCancellation:true,noiseSuppression:true,autoGainControl:true};
-  const videoC = camId
-    ? {deviceId:{exact:camId},width:{ideal:1280},height:{ideal:720}}
-    : {width:{ideal:1280},height:{ideal:720}};
+  // Build final stream — graceful degradation, NEVER blocks entry
+  const camId=$('sel-cam').value, micId=$('sel-mic').value;
+  const aConst=Object.assign({echoCancellation:true,noiseSuppression:true,autoGainControl:true},
+    micId?{deviceId:{exact:micId}}:{});
+  const vConst=Object.assign({width:{ideal:1280},height:{ideal:720}},
+    camId?{deviceId:{exact:camId}}:{});
 
-  if (_camOn && _micOn) {
-    // Try cam + mic
-    try { _localStream = await navigator.mediaDevices.getUserMedia({audio:audioC, video:videoC}); }
-    catch(e1) {
-      // Try audio only
-      try { _localStream = await navigator.mediaDevices.getUserMedia({audio:audioC, video:false}); _camOn=false; }
-      catch(e2) {
-        // Try video only
-        try { _localStream = await navigator.mediaDevices.getUserMedia({audio:false, video:videoC}); _micOn=false; }
-        catch(e3) { _localStream=null; _camOn=false; _micOn=false; } // viewer-only — still joins
-      }
-    }
-  } else if (_micOn) {
-    try { _localStream = await navigator.mediaDevices.getUserMedia({audio:audioC, video:false}); }
-    catch(e) { _localStream=null; _micOn=false; }
-  } else if (_camOn) {
-    try { _localStream = await navigator.mediaDevices.getUserMedia({audio:false, video:videoC}); }
-    catch(e) { _localStream=null; _camOn=false; }
+  if(_camOn&&_micOn){
+    try{ _localStream=await navigator.mediaDevices.getUserMedia({audio:aConst,video:vConst}); }
+    catch{ try{ _localStream=await navigator.mediaDevices.getUserMedia({audio:aConst,video:false}); _camOn=false; }
+    catch{ try{ _localStream=await navigator.mediaDevices.getUserMedia({audio:false,video:vConst}); _micOn=false; }
+    catch{ _localStream=null; _camOn=false; _micOn=false; } } }
+  } else if(_micOn){
+    try{ _localStream=await navigator.mediaDevices.getUserMedia({audio:aConst,video:false}); }
+    catch{ _localStream=null; _micOn=false; }
+  } else if(_camOn){
+    try{ _localStream=await navigator.mediaDevices.getUserMedia({audio:false,video:vConst}); }
+    catch{ _localStream=null; _camOn=false; }
   }
-  // If _localStream is still null at this point, user joins as silent viewer — that's valid
 
-  // Apply initial mute/cam state
-  if (_localStream) {
+  if(_localStream){
     _localStream.getAudioTracks().forEach(t=>t.enabled=_micOn);
     _localStream.getVideoTracks().forEach(t=>t.enabled=_camOn);
   }
@@ -1199,160 +1203,222 @@ async function enterMeeting(){
   showScreen('meet');
   initMeetingUI();
   connectSignaling();
+
+  btn.disabled=false; btn.textContent='Join Class Now';
 }
 
 /* ══════════════════════════════════════════════════════
-   MEETING UI
+   MEETING UI — wired ONCE
 ══════════════════════════════════════════════════════ */
-function initMeetingUI(){
-  $('meet-class-display').textContent=_className;
-  $('info-room-id').textContent=_roomId;
-  const inviteLink=`${location.origin}${location.pathname}?r=${_roomId}`;
-  $('info-invite-link').textContent=inviteLink;
-  $('btn-copy-invite').addEventListener('click',()=>{ navigator.clipboard.writeText(inviteLink).then(()=>showToast('📋 Invite link copied!')); });
-  $('btn-copy-link-info').addEventListener('click',()=>{ navigator.clipboard.writeText(inviteLink).then(()=>showToast('📋 Invite link copied!')); });
+let _meetListenersAttached = false;
 
-  // Start timer
+function initMeetingUI(){
+  $('meet-class-display').textContent = _className;
+
+  const inviteLink = `${location.origin}${location.pathname}?r=${_roomId}`;
+  $('info-room-id').textContent    = _roomId;
+  $('info-invite-link').textContent= inviteLink;
+
+  // Timer
+  if(_timerIv) clearInterval(_timerIv);
   _sessionStart=Date.now();
   _timerIv=setInterval(()=>{
-    const secs=Math.floor((Date.now()-_sessionStart)/1000);
-    $('meet-timer').textContent=fmtDuration(secs);
+    $('meet-timer').textContent=fmtDur(Math.floor((Date.now()-_sessionStart)/1000));
   },1000);
 
-  // Render local tile
-  renderVideoGrid();
+  // Render initial local tile
+  patchVideoGrid();
+
+  if(_meetListenersAttached) return;
+  _meetListenersAttached=true;
 
   // Controls
-  $('ctrl-mic').addEventListener('click',toggleMic);
-  $('ctrl-cam').addEventListener('click',toggleCam);
+  $('ctrl-mic')   .addEventListener('click',toggleMic);
+  $('ctrl-cam')   .addEventListener('click',toggleCam);
   $('ctrl-screen').addEventListener('click',toggleScreen);
-  $('ctrl-hand').addEventListener('click',toggleHand);
-  $('ctrl-end').addEventListener('click',leaveRoom);
+  $('ctrl-hand')  .addEventListener('click',toggleHand);
+  $('ctrl-end')   .addEventListener('click',leaveRoom);
 
-  // Right tabs
+  // Copy invite
+  $('btn-copy-invite').addEventListener('click',()=>{
+    const lnk=`${location.origin}${location.pathname}?r=${_roomId}`;
+    copyText(lnk);
+  });
+  $('btn-copy-link-info').addEventListener('click',()=>{
+    const lnk=`${location.origin}${location.pathname}?r=${_roomId}`;
+    copyText(lnk);
+  });
+
+  // Right sidebar tabs
   document.querySelectorAll('.right-tab').forEach(tab=>{
     tab.addEventListener('click',()=>{
       document.querySelectorAll('.right-tab').forEach(t=>t.classList.remove('active'));
       document.querySelectorAll('.right-panel').forEach(p=>p.classList.remove('active'));
       tab.classList.add('active');
-      $(`panel-${tab.dataset.panel}`).classList.add('active');
+      $('panel-'+tab.dataset.panel).classList.add('active');
     });
   });
 
-  // Instructor controls
-  if(_myRole==='instructor'){
-    $('instr-controls').style.display='block';
-    $('instr-take-attend').addEventListener('click',markAllPresent);
-    $('instr-announce').addEventListener('click',()=>$('modal-announce').classList.add('visible'));
-    $('instr-poll').addEventListener('click',()=>$('modal-poll').classList.add('visible'));
-    $('instr-end-class').addEventListener('click',leaveRoom);
-    $('btn-send-announce').addEventListener('click',sendAnnouncement);
-    $('btn-launch-poll').addEventListener('click',launchPoll);
-  }
+  // Instructor tools
+  $('instr-take-attend')?.addEventListener('click',markAllPresent);
+  $('instr-announce')   ?.addEventListener('click',()=>$('modal-announce').classList.add('visible'));
+  $('instr-poll')       ?.addEventListener('click',()=>$('modal-poll').classList.add('visible'));
+  $('instr-end-class')  ?.addEventListener('click',leaveRoom);
+  $('btn-send-announce')?.addEventListener('click',sendAnnouncement);
+  $('btn-launch-poll')  ?.addEventListener('click',launchPoll);
 
   // Chat
   $('chat-send').addEventListener('click',sendChat);
-  $('chat-input').addEventListener('keydown',e=>{ if(e.key==='Enter'&&!e.shiftKey){ e.preventDefault();sendChat(); }});
-
-  // Attendance export
-  $('btn-export-csv').addEventListener('click',exportAttendance);
-
-  // Add myself to attendance
-  addToAttendance(_myPeerId||'me', _myName, _myRole, true);
-  renderAttendance();
-  updatePeerCount();
-}
-
-/* ── Video grid ── */
-function renderVideoGrid(){
-  const grid=$('video-grid');
-  grid.innerHTML='';
-  const peers=[{id:'local',stream:_localStream||null,name:_myName,role:_myRole,muted:!_micOn,camOff:!_camOn,hand:_handUp,local:true}];
-  Object.keys(_peerStreams).forEach(pid=>{
-    peers.push({id:pid,stream:_peerStreams[pid],name:_peerNames[pid]||'Peer',role:_peerRoles[pid]||'student',muted:_peerMuted[pid],camOff:_peerCamOff[pid],hand:_peerHands[pid]});
+  $('chat-input').addEventListener('keydown',e=>{
+    if(e.key==='Enter'&&!e.shiftKey){ e.preventDefault(); sendChat(); }
   });
 
+  // Export
+  $('btn-export-csv').addEventListener('click',exportAttendance);
+
+  // Close announce toast
+  const at=$('announce-toast');
+  if(at) at.addEventListener('click',()=>at.classList.remove('visible'));
+}
+
+function updateInstructorUI(){
+  const ic=$('instr-controls');
+  if(ic) ic.style.display = _myRole==='instructor' ? 'block' : 'none';
+}
+
+/* ══════════════════════════════════════════════════════
+   VIDEO GRID — patch DOM, never wipe/rebuild existing cells
+══════════════════════════════════════════════════════ */
+function patchVideoGrid(){
+  const grid=$('video-grid');
+
+  // Build desired peer list
+  const peers=[{id:'local',stream:_localStream,name:_myName,role:_myRole,
+    muted:!_micOn,camOff:!_camOn,hand:_handUp,local:true}];
+  for(const pid of Object.keys(_peerStreams)){
+    peers.push({id:pid,stream:_peerStreams[pid],name:_peerNames[pid]||'Peer',
+      role:_peerRoles[pid]||'student',muted:!!_peerMuted[pid],
+      camOff:!!_peerCamOff[pid],hand:!!_peerHands[pid],local:false});
+  }
+
+  // Remove cells that no longer exist
+  const wantedIds=new Set(peers.map(p=>'vcell-'+p.id));
+  grid.querySelectorAll('.vid-cell').forEach(c=>{
+    if(!wantedIds.has(c.id)) c.remove();
+  });
+
+  // Grid columns
   const n=peers.length;
   const cols=n<=1?1:n<=2?2:n<=4?2:n<=6?3:Math.ceil(Math.sqrt(n));
   grid.style.gridTemplateColumns=`repeat(${cols},1fr)`;
 
+  // Upsert each cell
   peers.forEach(p=>{
-    const cell=document.createElement('div');
-    cell.className='vid-cell'+(p.local?' local':'');
-    cell.id='vid-'+p.id;
+    const cellId='vcell-'+p.id;
+    let cell=document.getElementById(cellId);
+    const hasVideo=p.stream&&p.stream.getVideoTracks().some(t=>t.readyState!=='ended');
+    const showVideo=hasVideo&&!p.camOff;
 
-    const hasVideo=p.stream&&p.stream.getVideoTracks().some(t=>t.enabled&&t.readyState!=='ended');
-    if(hasVideo){
-      const vid=document.createElement('video');
-      vid.autoplay=true; vid.playsInline=true;
-      if(p.local) vid.muted=true;
-      vid.srcObject=p.stream;
-      cell.appendChild(vid);
+    if(!cell){
+      // Create fresh cell
+      cell=document.createElement('div');
+      cell.className='vid-cell'+(p.local?' local':'');
+      cell.id=cellId;
+      grid.appendChild(cell);
+    }
+
+    // Sync video element
+    let vid=cell.querySelector('video');
+    let ov=cell.querySelector('.vid-cell-overlay');
+
+    if(showVideo){
+      if(!vid){
+        vid=document.createElement('video');
+        vid.autoplay=true; vid.playsInline=true;
+        if(p.local) vid.muted=true;
+        cell.prepend(vid);
+      }
+      if(vid.srcObject!==p.stream) vid.srcObject=p.stream;
+      vid.style.display='block';
+      if(ov) ov.style.display='none';
     } else {
-      const ov=document.createElement('div');
-      ov.className='vid-cell-overlay';
-      const av=document.createElement('div');
-      av.className='vid-avatar';
-      av.textContent=(p.name[0]||'?').toUpperCase();
-      ov.appendChild(av);
-      cell.appendChild(ov);
+      if(vid) vid.style.display='none';
+      if(!ov){
+        ov=document.createElement('div');
+        ov.className='vid-cell-overlay';
+        const av=document.createElement('div');
+        av.className='vid-avatar';
+        ov.appendChild(av);
+        cell.appendChild(ov);
+      }
+      ov.style.display='flex';
+      const av=ov.querySelector('.vid-avatar');
+      if(av) av.textContent=(p.name[0]||'?').toUpperCase();
     }
 
     // Label bar
-    const lbl=document.createElement('div');
-    lbl.className='vid-label';
-    const nameSpan=document.createElement('span');
-    nameSpan.className='vid-name';
-    nameSpan.textContent=(p.local?'You':p.name)+(p.hand?' ✋':'');
-    lbl.appendChild(nameSpan);
-    if(p.muted){
-      const mi=document.createElement('div');
-      mi.className='vid-muted-icon';
-      mi.innerHTML=`<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="1" y1="1" x2="23" y2="23"/><path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6"/></svg>`;
-      lbl.appendChild(mi);
+    let lbl=cell.querySelector('.vid-label');
+    if(!lbl){
+      lbl=document.createElement('div');
+      lbl.className='vid-label';
+      lbl.innerHTML=`<span class="vid-name"></span><span class="vid-muted-icon" style="display:none"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="1" y1="1" x2="23" y2="23"/><path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6"/></svg></span>`;
+      cell.appendChild(lbl);
     }
-    cell.appendChild(lbl);
+    lbl.querySelector('.vid-name').textContent=(p.local?'You':p.name)+(p.hand?' ✋':'');
+    lbl.querySelector('.vid-muted-icon').style.display=p.muted?'flex':'none';
 
-    // Role badge for instructor
+    // Role badge
+    let rb=cell.querySelector('.vid-role-badge');
     if(p.role==='instructor'){
-      const rb=document.createElement('div');
-      rb.className='vid-role-badge';
+      if(!rb){ rb=document.createElement('div'); rb.className='vid-role-badge'; cell.appendChild(rb); }
       rb.textContent='🎓 Host';
-      cell.appendChild(rb);
-    }
-
-    grid.appendChild(cell);
+    } else if(rb){ rb.remove(); }
   });
+
+  updatePeerCount();
 }
 
-/* ── Controls ── */
+/* ══════════════════════════════════════════════════════
+   CONTROLS
+══════════════════════════════════════════════════════ */
 function toggleMic(){
   _micOn=!_micOn;
   _localStream?.getAudioTracks().forEach(t=>t.enabled=_micOn);
-  $('ctrl-mic').classList.toggle('off',!_micOn);
-  $('ctrl-mic').querySelector('span').textContent=_micOn?'Mute':'Unmute';
-  $('ctrl-mic').title=_micOn?'Mute':'Unmute';
+  const btn=$('ctrl-mic');
+  btn.classList.toggle('off',!_micOn);
+  btn.querySelector('span').textContent=_micOn?'Mute':'Unmute';
+  btn.title=_micOn?'Mute microphone':'Unmute microphone';
+  // Sync mic icon in button
+  btn.querySelector('svg').replaceWith(micSVG(!_micOn));
   broadcastMeta();
+  patchVideoGrid();
 }
+
 function toggleCam(){
   _camOn=!_camOn;
   _localStream?.getVideoTracks().forEach(t=>t.enabled=_camOn);
-  $('ctrl-cam').classList.toggle('off',!_camOn);
-  $('ctrl-cam').querySelector('span').textContent=_camOn?'Camera':'Camera Off';
+  const btn=$('ctrl-cam');
+  btn.classList.toggle('off',!_camOn);
+  btn.querySelector('span').textContent=_camOn?'Camera':'Cam Off';
   broadcastMeta();
-  renderVideoGrid();
+  patchVideoGrid();
 }
+
 async function toggleScreen(){
   if(_screenSharing){
     _screenStream?.getTracks().forEach(t=>t.stop());
-    _screenStream=null;
-    _screenSharing=false;
+    _screenStream=null; _screenSharing=false;
     $('ctrl-screen').classList.remove('off');
     $('ctrl-screen').querySelector('span').textContent='Share';
     $('screenshare-banner').classList.remove('visible');
-    // Restore camera track to peers
+    // Restore cam track to all peer connections
     const camTrack=_localStream?.getVideoTracks()[0];
-    if(camTrack){ Object.values(_peerConns).forEach(pc=>{ const s=pc.getSenders().find(s=>s.track?.kind==='video'); if(s)s.replaceTrack(camTrack); }); }
+    if(camTrack){
+      for(const pc of Object.values(_peerConns)){
+        const sender=pc.getSenders().find(s=>s.track?.kind==='video');
+        if(sender) sender.replaceTrack(camTrack).catch(()=>{});
+      }
+    }
   } else {
     try{
       _screenStream=await navigator.mediaDevices.getDisplayMedia({video:true,audio:true});
@@ -1361,38 +1427,55 @@ async function toggleScreen(){
       $('ctrl-screen').querySelector('span').textContent='Stop Share';
       $('screenshare-banner').classList.add('visible');
       const scrTrack=_screenStream.getVideoTracks()[0];
-      Object.values(_peerConns).forEach(pc=>{ const s=pc.getSenders().find(s=>s.track?.kind==='video'||!s.track); if(s)s.replaceTrack(scrTrack); });
-      scrTrack.addEventListener('ended',()=>toggleScreen());
-    }catch(e){ console.warn('Screen share cancelled'); }
+      for(const pc of Object.values(_peerConns)){
+        const sender=pc.getSenders().find(s=>s.track?.kind==='video');
+        if(sender) sender.replaceTrack(scrTrack).catch(()=>{});
+      }
+      scrTrack.addEventListener('ended',toggleScreen);
+    }catch(e){ if(e.name!=='NotAllowedError') showToast('Screen share failed'); }
   }
 }
+
 function toggleHand(){
   _handUp=!_handUp;
   $('ctrl-hand').classList.toggle('off',_handUp);
-  $('ctrl-hand').querySelector('span').textContent=_handUp?'Lower Hand':'Hand';
+  $('ctrl-hand').querySelector('span').textContent=_handUp?'Lower ✋':'Hand';
   broadcastMeta();
-  renderVideoGrid();
-  if(_handUp) showToast('✋ Hand raised');
+  patchVideoGrid();
+  if(_handUp) showToast('✋ Hand raised — instructor can see you');
 }
 
-/* ── Attendance ── */
-function addToAttendance(peerId, name, role, present){
-  if(!_students.has(peerId)){
-    _students.set(peerId,{name,role,joinedAt:Date.now(),present});
-  }
+// SVG helpers for in-button icons
+function micSVG(muted){
+  const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');
+  svg.setAttribute('width','18'); svg.setAttribute('height','18');
+  svg.setAttribute('viewBox','0 0 24 24');
+  svg.setAttribute('fill','none'); svg.setAttribute('stroke','currentColor'); svg.setAttribute('stroke-width','2');
+  svg.innerHTML=muted
+    ?'<line x1="1" y1="1" x2="23" y2="23"/><path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6"/><path d="M17 16.95A7 7 0 0 1 5 12v-2m14 0v2a7 7 0 0 1-.11 1.23"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/>'
+    :'<path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/>';
+  return svg;
+}
+
+/* ══════════════════════════════════════════════════════
+   ATTENDANCE
+══════════════════════════════════════════════════════ */
+function addToAttendance(peerId,name,role,present){
+  if(!_students.has(peerId))
+    _students.set(peerId,{name,role,joinedAt:Date.now(),present:!!present});
 }
 function markAllPresent(){
   _students.forEach(s=>s.present=true);
   renderAttendance();
   showToast('✅ All participants marked present');
+  broadcastData({type:'edu-mark-all-present'});
 }
 function renderAttendance(){
   const list=$('student-list');
+  let present=0;
   list.innerHTML='';
-  let presentCount=0, total=0;
   _students.forEach((s,pid)=>{
-    total++;
-    if(s.present) presentCount++;
+    if(s.present) present++;
     const item=document.createElement('div');
     item.className='student-item';
     const av=document.createElement('div');
@@ -1400,19 +1483,19 @@ function renderAttendance(){
     av.textContent=(s.name[0]||'?').toUpperCase();
     const info=document.createElement('div');
     info.className='student-info';
-    info.innerHTML=`<div class="student-name">${s.name}${s.role==='instructor'?' 🎓':''}</div><div class="student-joined">Joined ${fmt(s.joinedAt)}</div>`;
+    info.innerHTML=`<div class="student-name">${escHtml(s.name)}${s.role==='instructor'?' 🎓':''}</div><div class="student-joined">Joined ${fmtTime(s.joinedAt)}</div>`;
     const status=document.createElement('div');
     status.className='student-status '+(s.role==='instructor'?'instructor':s.present?'present':'absent');
     status.innerHTML=s.role==='instructor'
-      ?`<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>`
+      ?`<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>`
       :s.present
-      ?`<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--green)" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>`
-      :`<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/></svg>`;
+      ?`<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--green)" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>`
+      :`<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--tx4)" stroke-width="2"><circle cx="12" cy="12" r="9"/></svg>`;
     item.append(av,info,status);
     list.appendChild(item);
   });
-  $('stat-present').textContent=presentCount;
-  $('stat-total').textContent=total;
+  $('stat-present').textContent=present;
+  $('stat-total').textContent=_students.size;
   updatePeerCount();
 }
 function updatePeerCount(){
@@ -1424,313 +1507,447 @@ function exportAttendance(){
   _students.forEach(s=>{
     csv+=`"${s.name}","${s.role}","${new Date(s.joinedAt).toLocaleString()}","${s.present?'Yes':'No'}"\n`;
   });
-  const blob=new Blob([csv],{type:'text/csv'});
   const a=document.createElement('a');
-  a.href=URL.createObjectURL(blob);
+  a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv'}));
   a.download=`attendance_${_roomId}_${new Date().toISOString().slice(0,10)}.csv`;
   a.click();
 }
+function escHtml(s){ return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
-/* ── Chat ── */
+/* ══════════════════════════════════════════════════════
+   CHAT
+══════════════════════════════════════════════════════ */
 function sendChat(){
-  const msg=$('chat-input').value.trim();
-  if(!msg) return;
-  $('chat-input').value='';
-  const entry={from:_myPeerId||'me',name:_myName,text:msg,time:Date.now()};
-  _chatHistory.push(entry);
-  renderChatMsg(entry,true);
-  broadcastData({type:'edu-chat',name:_myName,text:msg});
+  const input=$('chat-input');
+  const text=input.value.trim();
+  if(!text) return;
+  input.value='';
+  appendChat(_myName,text,true);
+  broadcastData({type:'edu-chat',name:_myName,text});
 }
-function renderChatMsg(entry, mine){
+function appendChat(name,text,mine){
+  const msgs=$('chat-msgs');
   const wrap=document.createElement('div');
   wrap.className='chat-msg'+(mine?' mine':'');
   const sender=document.createElement('div');
   sender.className='chat-msg-sender';
-  sender.textContent=mine?'You':entry.name;
+  sender.textContent=mine?'You':escHtml(name);
   const bubble=document.createElement('div');
   bubble.className='chat-msg-bubble';
-  bubble.textContent=entry.text;
+  bubble.textContent=text; // textContent is XSS-safe
   wrap.append(sender,bubble);
-  const msgs=$('chat-msgs');
   msgs.appendChild(wrap);
   msgs.scrollTop=msgs.scrollHeight;
+  // Switch to chat tab if not active
+  if(!$('panel-chat').classList.contains('active')){
+    const tab=document.querySelector('[data-panel="chat"]');
+    if(tab){ tab.style.position='relative'; }
+    // Small dot indicator
+  }
 }
 
-/* ── Announcements ── */
+/* ══════════════════════════════════════════════════════
+   ANNOUNCEMENTS
+══════════════════════════════════════════════════════ */
 function sendAnnouncement(){
-  const msg=$('announce-msg-input').value.trim();
-  if(!msg) return;
+  const text=$('announce-msg-input').value.trim();
+  if(!text) return;
   $('announce-msg-input').value='';
   $('modal-announce').classList.remove('visible');
-  showAnnouncement(_myName, msg);
-  broadcastData({type:'edu-announce',name:_myName,text:msg});
+  showAnnouncement(_myName,text);
+  broadcastData({type:'edu-announce',name:_myName,text});
 }
-function showAnnouncement(from, text){
+function showAnnouncement(from,text){
   $('announce-from').textContent=`📢 ${from}`;
   $('announce-text').textContent=text;
-  $('announce-toast').classList.add('visible');
-  setTimeout(()=>$('announce-toast').classList.remove('visible'),6000);
+  const toast=$('announce-toast');
+  toast.classList.add('visible');
+  setTimeout(()=>toast.classList.remove('visible'),7000);
 }
 
-/* ── Polls ── */
+/* ══════════════════════════════════════════════════════
+   POLLS
+══════════════════════════════════════════════════════ */
 function launchPoll(){
   const q=$('poll-q-input').value.trim();
-  const opts=$('poll-opts-input').value.trim().split('\n').filter(Boolean);
+  const opts=$('poll-opts-input').value.trim().split('\n').map(s=>s.trim()).filter(Boolean);
   if(!q||opts.length<2){ showToast('Need a question and at least 2 options'); return; }
   $('modal-poll').classList.remove('visible');
-  $('poll-q-input').value='';
-  $('poll-opts-input').value='';
+  $('poll-q-input').value=''; $('poll-opts-input').value='';
   _activePoll={question:q,options:opts,results:new Array(opts.length).fill(0)};
   _myPollVote=null;
-  _pollVotes.clear();
-  showPollForVoting(_activePoll);
+  renderPollVoting(_activePoll);
   broadcastData({type:'edu-poll-start',question:q,options:opts});
 }
-function showPollForVoting(poll){
+function renderPollVoting(poll){
   $('poll-question').textContent='📊 '+poll.question;
-  const opts=$('poll-options');
-  opts.innerHTML='';
+  const opts=$('poll-options'); opts.innerHTML='';
   poll.options.forEach((opt,i)=>{
     const btn=document.createElement('button');
-    btn.className='poll-opt';
-    btn.textContent=opt;
+    btn.className='poll-opt'; btn.textContent=opt;
     btn.addEventListener('click',()=>{
-      if(_myPollVote!==null) return;
+      if(_myPollVote!=null) return;
       _myPollVote=i;
-      document.querySelectorAll('.poll-opt').forEach(b=>b.classList.remove('selected'));
+      opts.querySelectorAll('.poll-opt').forEach(b=>b.classList.remove('selected'));
       btn.classList.add('selected');
       broadcastData({type:'edu-poll-vote',optionIdx:i,name:_myName});
-      showToast('Vote submitted!');
+      showToast('✅ Vote submitted!');
     });
     opts.appendChild(btn);
   });
   $('poll-overlay').classList.add('visible');
 }
-function showPollResults(poll){
+function renderPollResults(poll){
   const total=poll.results.reduce((a,b)=>a+b,0)||1;
   $('poll-question').textContent='📊 Results: '+poll.question;
-  const opts=$('poll-options');
-  opts.innerHTML='';
+  const opts=$('poll-options'); opts.innerHTML='';
   poll.options.forEach((opt,i)=>{
     const pct=Math.round((poll.results[i]/total)*100);
     const btn=document.createElement('button');
-    btn.className='poll-opt result-bar';
-    const fill=document.createElement('div');
-    fill.className='poll-opt-fill';
-    fill.style.width='0%';
-    const txt=document.createElement('div');
-    txt.className='poll-opt-text';
-    txt.innerHTML=`<span>${opt}</span><span>${pct}% (${poll.results[i]})</span>`;
+    btn.className='poll-opt result-bar'; btn.style.cursor='default';
+    const fill=document.createElement('div'); fill.className='poll-opt-fill'; fill.style.width='0%';
+    const txt=document.createElement('div'); txt.className='poll-opt-text';
+    txt.innerHTML=`<span>${escHtml(opt)}</span><span>${pct}% (${poll.results[i]})</span>`;
     btn.append(fill,txt);
     opts.appendChild(btn);
-    setTimeout(()=>fill.style.width=pct+'%',50);
+    requestAnimationFrame(()=>{ fill.style.transition='width .5s ease'; fill.style.width=pct+'%'; });
   });
   $('poll-overlay').classList.add('visible');
 }
 
-/* ── Leave ── */
+/* ══════════════════════════════════════════════════════
+   LEAVE ROOM
+══════════════════════════════════════════════════════ */
 function leaveRoom(){
-  clearInterval(_timerIv);
-  Object.values(_peerConns).forEach(pc=>pc.close());
-  _localStream?.getTracks().forEach(t=>t.stop());
-  _screenStream?.getTracks().forEach(t=>t.stop());
-  if(_ws){ _ws.close(); _ws=null; }
+  clearInterval(_timerIv); _timerIv=null;
+  // Tell server we're leaving
+  wsSend({type:'leave'});
+  if(_ws){ _ws.onclose=null; _ws.close(); _ws=null; }
+  // Close all peer connections
+  for(const [pid,pc] of Object.entries(_peerConns)){
+    pc.onconnectionstatechange=null; pc.onicecandidate=null;
+    pc.ontrack=null; pc.ondatachannel=null;
+    pc.close();
+    delete _peerConns[pid]; delete _peerStreams[pid]; delete _peerDCs[pid];
+  }
+  _localStream?.getTracks().forEach(t=>t.stop()); _localStream=null;
+  _screenStream?.getTracks().forEach(t=>t.stop()); _screenStream=null;
+  // Reset state
+  Object.keys(_peerNames).forEach(k=>delete _peerNames[k]);
+  Object.keys(_peerRoles).forEach(k=>delete _peerRoles[k]);
+  Object.keys(_peerMuted).forEach(k=>delete _peerMuted[k]);
+  Object.keys(_peerCamOff).forEach(k=>delete _peerCamOff[k]);
+  Object.keys(_peerHands).forEach(k=>delete _peerHands[k]);
+  _students.clear(); _chatHistory.length=0;
+  _screenSharing=false; _handUp=false;
+  _micOn=true; _camOn=true;
+  _meetListenersAttached=false; // allow re-init if user re-joins
   showScreen('landing');
   showToast('👋 You left the class');
 }
 
 /* ══════════════════════════════════════════════════════
-   WEBRTC SIGNALING (connects to SmartShare server)
+   WEBSOCKET SIGNALING
+   Message types sent to server: join / offer / answer / ice-candidate / leave
+   Received from server: joined / peer_joined / peer_left / offer / answer / ice-candidate / error
+   NOTE: 'data' is NOT a server relay type — all app data goes over WebRTC DataChannels
 ══════════════════════════════════════════════════════ */
 function connectSignaling(){
   const wsUrl=`${location.protocol==='https:'?'wss':'ws'}://${location.host}/signal`;
   try{
     _ws=new WebSocket(wsUrl);
   }catch(e){
-    console.warn('WebSocket failed — running in standalone preview mode');
-    simulateLocalMode();
-    return;
+    console.warn('[edumeet] WebSocket constructor threw — demo mode');
+    enterDemoMode(); return;
   }
 
   _ws.onopen=()=>{
-    _ws.send(JSON.stringify({type:'join',roomId:_roomId,name:_myName,mode:'group'}));
+    console.log('[edumeet] ws open — joining room',_roomId);
+    wsSend({type:'join',roomId:_roomId,name:_myName,mode:'group'});
   };
+
   _ws.onmessage=e=>{
-    let msg; try{msg=JSON.parse(e.data);}catch{return;}
+    let msg; try{ msg=JSON.parse(e.data); }catch{ return; }
     handleSignal(msg);
   };
-  _ws.onerror=()=>{
-    console.warn('WS error — standalone mode');
-    simulateLocalMode();
+
+  _ws.onerror=e=>{
+    console.warn('[edumeet] ws error',e);
+    // onerror always precedes onclose, so we just log here
   };
-  _ws.onclose=()=>console.log('[edumeet] ws closed');
+
+  _ws.onclose=ev=>{
+    console.log('[edumeet] ws closed',ev.code,ev.reason);
+    if(ev.code===1006){
+      // Abnormal close — server unreachable
+      enterDemoMode();
+    }
+  };
 }
 
-function simulateLocalMode(){
-  // No server available — show local-only meeting (demo mode)
-  _myPeerId='local-'+uid();
-  showToast('🌐 Demo mode — invite others via link');
-  // Already rendered local tile
+function enterDemoMode(){
+  if(!_myPeerId) _myPeerId='local-'+uid();
+  addToAttendance(_myPeerId,_myName,_myRole,true);
+  renderAttendance();
+  showToast('📡 No server — running locally. Share the link to invite others once deployed.');
 }
 
+function wsSend(obj){
+  if(_ws?.readyState===WebSocket.OPEN) _ws.send(JSON.stringify(obj));
+}
+
+/* ══════════════════════════════════════════════════════
+   SIGNAL HANDLER
+══════════════════════════════════════════════════════ */
 async function handleSignal(msg){
   switch(msg.type){
-    case 'joined':
-      _myPeerId=msg.peerId;
-      _iceServers=msg.iceServers||DEFAULT_ICE;
-      // Offer to existing peers
+    case 'joined':{
+      _myPeerId  = msg.peerId;
+      _iceServers= msg.iceServers?.length ? msg.iceServers : DEFAULT_ICE;
+      console.log('[edumeet] joined as',_myPeerId,'room',msg.roomId,'mode',msg.mode);
+      // Offer to all existing peers (we are the newcomer)
       for(const p of (msg.peers||[])){
-        _peerNames[p.id]=p.name;
+        _peerNames[p.id]=p.name||'Peer';
         await createOffer(p.id);
       }
       addToAttendance(_myPeerId,_myName,_myRole,true);
       renderAttendance();
+      updateInstructorUI();
       break;
-    case 'peer_joined':
-      _peerNames[msg.peerId]=msg.name||'Peer';
-      addToAttendance(msg.peerId,msg.name||'Peer','student',true);
+    }
+    case 'peer_joined':{
+      const pid=msg.peerId;
+      _peerNames[pid]=msg.name||'Peer';
+      // They will send us an offer (they arrived after us); we wait
+      addToAttendance(pid,_peerNames[pid],'student',true);
       renderAttendance();
-      renderVideoGrid();
-      showToast(`✅ ${msg.name||'Someone'} joined`);
+      patchVideoGrid();
+      showToast(`✅ ${_peerNames[pid]} joined`);
       break;
-    case 'peer_left':
-      cleanupPeer(msg.peerId);
-      showToast(`👋 ${_peerNames[msg.peerId]||'Someone'} left`);
-      delete _peerNames[msg.peerId];
+    }
+    case 'peer_left':{
+      const pid=msg.peerId;
+      const who=_peerNames[pid]||'Someone';
+      cleanupPeer(pid);
+      delete _peerNames[pid]; delete _peerRoles[pid];
+      delete _peerMuted[pid]; delete _peerCamOff[pid]; delete _peerHands[pid];
+      const s=_students.get(pid);
+      if(s) s.present=false;
       renderAttendance();
-      renderVideoGrid();
+      patchVideoGrid();
+      showToast(`👋 ${who} left`);
       break;
+    }
     case 'offer':
       await handleOffer(msg);
       break;
     case 'answer':
-      await _peerConns[msg.from]?.setRemoteDescription(new RTCSessionDescription(msg.sdp));
-      break;
-    case 'ice':
-      try{ await _peerConns[msg.from]?.addIceCandidate(new RTCIceCandidate(msg.candidate)); }catch{}
-      break;
-    case 'data':
-      handleData(msg.from, msg.payload);
-      break;
-  }
-}
-
-async function createOffer(peerId){
-  const pc=createPC(peerId);
-  const offer=await pc.createOffer();
-  await pc.setLocalDescription(offer);
-  wsSend({type:'offer',to:peerId,sdp:pc.localDescription});
-}
-async function handleOffer(msg){
-  const pc=createPC(msg.from);
-  await pc.setRemoteDescription(new RTCSessionDescription(msg.sdp));
-  const answer=await pc.createAnswer();
-  await pc.setLocalDescription(answer);
-  wsSend({type:'answer',to:msg.from,sdp:pc.localDescription});
-}
-
-function createPC(peerId){
-  const pc=new RTCPeerConnection({iceServers:_iceServers.length?_iceServers:DEFAULT_ICE});
-  _peerConns[peerId]=pc;
-
-  // Add local tracks (stream may be null if all media was denied)
-  if(_localStream) _localStream.getTracks().forEach(t=>pc.addTrack(t,_localStream));
-
-  pc.onicecandidate=e=>{ if(e.candidate) wsSend({type:'ice',to:peerId,candidate:e.candidate}); };
-  pc.ontrack=e=>{
-    if(!_peerStreams[peerId]) _peerStreams[peerId]=new MediaStream();
-    _peerStreams[peerId].addTrack(e.track);
-    renderVideoGrid();
-  };
-  pc.ondatachannel=e=>{
-    e.channel.onmessage=ev=>{ try{handleData(peerId,JSON.parse(ev.data));}catch{} };
-  };
-
-  // Data channel for meta
-  const dc=pc.createDataChannel('edu-meta',{ordered:true});
-  dc.onopen=()=>{
-    dc.send(JSON.stringify({type:'edu-meta',name:_myName,role:_myRole,micOn:_micOn,camOn:_camOn}));
-  };
-  pc.dataChannel=dc;
-
-  pc.onconnectionstatechange=()=>{
-    if(['failed','closed','disconnected'].includes(pc.connectionState)) cleanupPeer(peerId);
-  };
-  return pc;
-}
-function cleanupPeer(peerId){
-  _peerConns[peerId]?.close();
-  delete _peerConns[peerId];
-  delete _peerStreams[peerId];
-  const s=_students.get(peerId);
-  if(s){ s.present=false; }
-}
-
-function broadcastMeta(){
-  const data={type:'edu-meta',name:_myName,role:_myRole,micOn:_micOn,camOn:_camOn,handUp:_handUp};
-  broadcastData(data);
-}
-function broadcastData(data){
-  Object.values(_peerConns).forEach(pc=>{
-    const dc=pc.dataChannel;
-    if(dc&&dc.readyState==='open') try{dc.send(JSON.stringify(data));}catch{}
-  });
-  // Also relay via WS for reliability
-  if(_ws?.readyState===1) wsSend({type:'data',payload:data});
-}
-function wsSend(obj){
-  if(_ws?.readyState===1) _ws.send(JSON.stringify(obj));
-}
-
-function handleData(from, d){
-  if(!d||!d.type) return;
-  switch(d.type){
-    case 'edu-meta':
-      _peerNames[from]=d.name||'Peer';
-      _peerRoles[from]=d.role||'student';
-      _peerMuted[from]=!d.micOn;
-      _peerCamOff[from]=!d.camOn;
-      _peerHands[from]=!!d.handUp;
-      renderVideoGrid();
-      renderAttendance();
-      break;
-    case 'edu-chat':
-      renderChatMsg({from,name:d.name||_peerNames[from]||'Peer',text:d.text},false);
-      break;
-    case 'edu-announce':
-      showAnnouncement(d.name||'Instructor',d.text);
-      break;
-    case 'edu-poll-start':
-      _activePoll={question:d.question,options:d.options,results:new Array(d.options.length).fill(0)};
-      _myPollVote=null;
-      showPollForVoting(_activePoll);
-      break;
-    case 'edu-poll-vote':
-      if(_activePoll&&d.optionIdx!=null){
-        _activePoll.results[d.optionIdx]=((_activePoll.results[d.optionIdx]||0)+1);
-        if(_myRole==='instructor') showPollResults(_activePoll);
+      if(_peerConns[msg.from]){
+        try{ await _peerConns[msg.from].setRemoteDescription(new RTCSessionDescription(msg.sdp)); }
+        catch(e){ console.error('[edumeet] setRemoteDescription answer failed',e); }
       }
       break;
-    case 'edu-poll-end':
-      if(_activePoll) showPollResults(_activePoll);
+    case 'ice-candidate':
+      if(_peerConns[msg.from]&&msg.candidate){
+        try{ await _peerConns[msg.from].addIceCandidate(new RTCIceCandidate(msg.candidate)); }
+        catch(e){ /* benign during renegotiation */ }
+      }
+      break;
+    case 'error':
+      console.warn('[edumeet] server error',msg.code,msg.message);
+      if(msg.code==='room_full') showToast('❌ Room is full (max 500)');
       break;
   }
 }
 
 /* ══════════════════════════════════════════════════════
-   SCREEN SWITCHER
+   WEBRTC — Peer Connection
 ══════════════════════════════════════════════════════ */
-function showScreen(name){
-  document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));
-  $('screen-'+name).classList.add('active');
-  // Only show back link on landing
-  $('back-link').style.display = name==='meet'?'none':'flex';
+async function createOffer(peerId){
+  const pc=createPC(peerId, true /*isOfferer*/);
+  try{
+    const offer=await pc.createOffer();
+    await pc.setLocalDescription(offer);
+    wsSend({type:'offer',to:peerId,sdp:pc.localDescription});
+  }catch(e){ console.error('[edumeet] createOffer failed',e); }
 }
 
-/* ── Handle ?r= URL param to auto-fill room ── */
-(function checkUrlRoom(){
-  const url=new URL(location.href);
-  const r=url.searchParams.get('r')||url.searchParams.get('room');
+async function handleOffer(msg){
+  const peerId=msg.from;
+  const pc=createPC(peerId, false /*isAnswerer*/);
+  try{
+    await pc.setRemoteDescription(new RTCSessionDescription(msg.sdp));
+    const answer=await pc.createAnswer();
+    await pc.setLocalDescription(answer);
+    wsSend({type:'answer',to:peerId,sdp:pc.localDescription});
+  }catch(e){ console.error('[edumeet] handleOffer failed',e); }
+}
+
+function createPC(peerId, isOfferer){
+  // Clean up any stale connection for this peer
+  if(_peerConns[peerId]){
+    _peerConns[peerId].onconnectionstatechange=null;
+    _peerConns[peerId].close();
+  }
+
+  const pc=new RTCPeerConnection({
+    iceServers: _iceServers.length ? _iceServers : DEFAULT_ICE,
+    iceTransportPolicy: 'all',
+  });
+  _peerConns[peerId]=pc;
+
+  // Add local tracks
+  if(_localStream){
+    _localStream.getTracks().forEach(t=>pc.addTrack(t,_localStream));
+  } else {
+    // Add a dummy track so the peer knows we exist
+    // (omit — just send no tracks; peer will still connect)
+  }
+
+  // ICE candidates — server uses type 'ice-candidate'
+  pc.onicecandidate=e=>{
+    if(e.candidate) wsSend({type:'ice-candidate',to:peerId,candidate:e.candidate});
+  };
+
+  pc.oniceconnectionstatechange=()=>{
+    console.log(`[edumeet] ICE ${peerId.slice(0,6)} → ${pc.iceConnectionState}`);
+    if(pc.iceConnectionState==='connected'||pc.iceConnectionState==='completed'){
+      // Send our meta as soon as connected (DataChannel may not be open yet)
+    }
+  };
+
+  // Remote tracks
+  pc.ontrack=e=>{
+    if(!_peerStreams[peerId]) _peerStreams[peerId]=new MediaStream();
+    e.streams[0]?.getTracks().forEach(t=>{
+      // Avoid duplicate tracks
+      if(!_peerStreams[peerId].getTracks().find(x=>x.id===t.id))
+        _peerStreams[peerId].addTrack(t);
+    });
+    patchVideoGrid();
+  };
+
+  // DATA CHANNEL — only offerer creates; answerer receives via ondatachannel
+  if(isOfferer){
+    const dc=pc.createDataChannel('edu',{ordered:true,maxRetransmits:3});
+    _peerDCs[peerId]=dc;
+    wireDataChannel(dc,peerId);
+  } else {
+    pc.ondatachannel=e=>{
+      _peerDCs[peerId]=e.channel;
+      wireDataChannel(e.channel,peerId);
+    };
+  }
+
+  pc.onconnectionstatechange=()=>{
+    const s=pc.connectionState;
+    console.log(`[edumeet] PC ${peerId.slice(0,6)} → ${s}`);
+    if(s==='failed'||s==='closed'){
+      // Only cleanup on hard failure, not 'disconnected' (ICE restart may recover)
+      cleanupPeer(peerId);
+      patchVideoGrid();
+    }
+  };
+
+  return pc;
+}
+
+function wireDataChannel(dc, peerId){
+  dc.onopen=()=>{
+    console.log('[edumeet] DC open →',peerId.slice(0,6));
+    // Send our meta immediately on open
+    dcSend(peerId,{type:'edu-meta',name:_myName,role:_myRole,micOn:_micOn,camOn:_camOn,handUp:_handUp});
+  };
+  dc.onmessage=e=>{
+    try{ handleData(peerId,JSON.parse(e.data)); }catch{}
+  };
+  dc.onerror=e=>console.warn('[edumeet] DC error',e);
+  dc.onclose=()=>console.log('[edumeet] DC closed',peerId.slice(0,6));
+}
+
+function cleanupPeer(peerId){
+  const pc=_peerConns[peerId];
+  if(pc){
+    pc.onconnectionstatechange=null; pc.onicecandidate=null;
+    pc.ontrack=null; pc.ondatachannel=null;
+    pc.close();
+  }
+  delete _peerConns[peerId];
+  delete _peerStreams[peerId];
+  delete _peerDCs[peerId];
+}
+
+/* ══════════════════════════════════════════════════════
+   DATA CHANNEL MESSAGING
+   All app data (chat, meta, polls, announcements) goes over DataChannels only.
+   WebSocket is signaling-only.
+══════════════════════════════════════════════════════ */
+function dcSend(peerId, data){
+  const dc=_peerDCs[peerId];
+  if(dc?.readyState==='open'){
+    try{ dc.send(JSON.stringify(data)); }catch(e){ console.warn('[edumeet] dcSend failed',e); }
+  }
+}
+
+function broadcastData(data){
+  for(const peerId of Object.keys(_peerDCs)){
+    dcSend(peerId,data);
+  }
+}
+
+function broadcastMeta(){
+  broadcastData({type:'edu-meta',name:_myName,role:_myRole,micOn:_micOn,camOn:_camOn,handUp:_handUp});
+}
+
+function handleData(from, d){
+  if(!d?.type) return;
+  switch(d.type){
+    case 'edu-meta':
+      if(d.name) _peerNames[from]=d.name;
+      if(d.role) _peerRoles[from]=d.role;
+      _peerMuted[from]  = !d.micOn;
+      _peerCamOff[from] = !d.camOn;
+      _peerHands[from]  = !!d.handUp;
+      // Update attendance entry if name changed
+      const stu=_students.get(from);
+      if(stu&&d.name) stu.name=d.name;
+      patchVideoGrid();
+      renderAttendance();
+      break;
+    case 'edu-chat':
+      appendChat(d.name||_peerNames[from]||'Peer', d.text, false);
+      break;
+    case 'edu-announce':
+      showAnnouncement(d.name||'Instructor', d.text);
+      break;
+    case 'edu-mark-all-present':
+      _students.forEach(s=>s.present=true);
+      renderAttendance();
+      showToast('✅ Instructor marked attendance');
+      break;
+    case 'edu-poll-start':
+      if(d.options?.length>=2){
+        _activePoll={question:d.question,options:d.options,results:new Array(d.options.length).fill(0)};
+        _myPollVote=null;
+        renderPollVoting(_activePoll);
+      }
+      break;
+    case 'edu-poll-vote':
+      if(_activePoll&&d.optionIdx!=null&&d.optionIdx<_activePoll.results.length){
+        _activePoll.results[d.optionIdx]++;
+        if(_myRole==='instructor') renderPollResults(_activePoll);
+      }
+      break;
+    case 'edu-poll-end':
+      if(_activePoll) renderPollResults(_activePoll);
+      break;
+  }
+}
+
+/* ── Handle ?r= URL param ── */
+(()=>{
+  const r=new URLSearchParams(location.search).get('r')
+        ||new URLSearchParams(location.search).get('room');
   if(r) $('join-room-input').value=r;
 })();
 </script>

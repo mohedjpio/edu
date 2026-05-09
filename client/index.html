@@ -898,28 +898,7 @@
   </div><!-- /app-layout -->
 </div><!-- /app-screen -->
 
-<!-- HTTPS notice — shown only when on plain HTTP (mic/cam require HTTPS) -->
-<div id="https-notice" class="https-notice" role="alert">
-  ⚠️ You're on HTTP — microphone, camera, and screen share require HTTPS. Deploy with SSL or access via <strong>localhost</strong>.
-</div>
-
 <div id="toast-container" aria-live="assertive" aria-atomic="true"></div>
-
-<script>
-  // Show HTTPS notice if not on a secure context
-  (function() {
-    const secure = location.protocol === 'https:' ||
-                   location.hostname === 'localhost' ||
-                   location.hostname === '127.0.0.1' ||
-                   location.hostname === '::1' ||
-                   location.hostname.endsWith('.local');
-    if (!secure) {
-      document.getElementById('https-notice').classList.add('visible');
-      // Pad the body top so content isn't hidden under the bar
-      document.body.style.paddingTop = '36px';
-    }
-  })();
-</script>
 
 <!-- Minimized call PiP -->
 <div id="call-pip" class="call-pip hidden">
