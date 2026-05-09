@@ -560,39 +560,63 @@ body{
     <span class="logo-badge">by SmartShare</span>
   </div>
   <div class="landing-card">
-    <div class="landing-title">Join or start a class</div>
-    <div class="landing-sub">Professional education meetings · Up to 500 students · Attendance tracked automatically</div>
 
-    <div class="field">
-      <label>Your Name</label>
-      <input id="name-input" type="text" placeholder="Enter your full name…" maxlength="40" autocomplete="name"/>
-    </div>
+    <!-- ── DEFAULT: Create or join ── -->
+    <div id="landing-default">
+      <div class="landing-title">Join or start a class</div>
+      <div class="landing-sub">Professional education meetings · Up to 500 students · Attendance tracked automatically</div>
 
-    <div style="margin-bottom:16px;">
-      <div style="font-size:.78rem;font-weight:600;color:var(--tx2);margin-bottom:8px;">Join as</div>
-      <div class="role-cards">
-        <div class="role-card selected" data-role="student" id="role-student">
-          <div class="rc-icon">👤</div>
-          <div class="rc-name">Student</div>
-          <div class="rc-desc">Attend a class</div>
+      <div class="field">
+        <label>Your Name</label>
+        <input id="name-input" type="text" placeholder="Enter your full name…" maxlength="40" autocomplete="name"/>
+      </div>
+
+      <div style="margin-bottom:16px;">
+        <div style="font-size:.78rem;font-weight:600;color:var(--tx2);margin-bottom:8px;">Join as</div>
+        <div class="role-cards">
+          <div class="role-card selected" data-role="student" id="role-student">
+            <div class="rc-icon">👤</div>
+            <div class="rc-name">Student</div>
+            <div class="rc-desc">Attend a class</div>
+          </div>
+          <div class="role-card" data-role="instructor" id="role-instructor">
+            <div class="rc-icon">🎓</div>
+            <div class="rc-name">Instructor</div>
+            <div class="rc-desc">Host a class</div>
+          </div>
         </div>
-        <div class="role-card" data-role="instructor" id="role-instructor">
-          <div class="rc-icon">🎓</div>
-          <div class="rc-name">Instructor</div>
-          <div class="rc-desc">Host a class</div>
-        </div>
+      </div>
+
+      <button class="btn-primary" id="btn-create-room">
+        <span id="btn-create-label">🚀 Create Class Room</span>
+      </button>
+
+      <div class="divider">or join existing</div>
+
+      <div class="room-join-row">
+        <input id="join-room-input" type="text" placeholder="Paste room ID or link…" autocomplete="off" spellcheck="false"/>
+        <button class="btn-ghost" id="btn-join-room">Join →</button>
       </div>
     </div>
 
-    <button class="btn-primary" id="btn-create-room">
-      <span id="btn-create-label">🚀 Create Class Room</span>
-    </button>
+    <!-- ── INVITE MODE: Student joining via shared link ── -->
+    <div id="landing-invite" style="display:none">
+      <div style="text-align:center;margin-bottom:24px;">
+        <div style="font-size:2.4rem;margin-bottom:10px;">🎓</div>
+        <div class="landing-title">You're invited to join a class</div>
+        <div id="invite-room-label" style="font-size:.82rem;color:var(--cyan3);font-weight:600;margin-top:6px;font-family:var(--mono);"></div>
+      </div>
 
-    <div class="divider">or join existing</div>
+      <div class="field">
+        <label>Enter your name to join</label>
+        <input id="name-input-invite" type="text" placeholder="Your full name…" maxlength="40" autocomplete="name"/>
+      </div>
 
-    <div class="room-join-row">
-      <input id="join-room-input" type="text" placeholder="Paste room ID or link…" autocomplete="off" spellcheck="false"/>
-      <button class="btn-ghost" id="btn-join-room">Join →</button>
+      <button class="btn-primary" id="btn-join-invite">Join Class →</button>
+
+      <div style="margin-top:12px;text-align:center;">
+        <a href="/edu-meet.html" style="font-size:.78rem;color:var(--tx3);text-decoration:none;border-bottom:1px solid var(--bdr2);">Start your own class instead</a>
+      </div>
     </div>
 
     <div style="margin-top:14px;padding:10px 14px;border-radius:8px;background:var(--bg3);border:1px solid var(--bdr1);font-size:.75rem;color:var(--tx3);display:flex;align-items:center;gap:8px;">
@@ -759,7 +783,7 @@ body{
               <span class="sc-lbl">Total</span>
             </div>
           </div>
-          <button class="attend-export" id="btn-export-csv">⬇ CSV</button>
+          <button class="attend-export" id="btn-export-csv" style="display:none">⬇ CSV</button>
         </div>
 
         <!-- Instructor controls (only shown for instructors) -->
@@ -771,6 +795,14 @@ body{
           <div class="instr-row" style="margin-top:6px;">
             <button class="instr-btn" id="instr-poll">📊 Poll</button>
             <button class="instr-btn danger" id="instr-end-class">⏹ End Class</button>
+          </div>
+          <!-- Raised hands list — only visible when students raise hand -->
+          <div id="raised-hands-section" style="display:none;margin-top:10px;padding:8px 10px;border-radius:8px;background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.2);">
+            <div style="font-size:.72rem;font-weight:700;color:#f59e0b;margin-bottom:6px;display:flex;align-items:center;gap:5px;">
+              ✋ Raised Hands
+              <span id="raised-hands-count" style="background:rgba(245,158,11,.2);padding:1px 6px;border-radius:10px;font-size:.68rem;">0</span>
+            </div>
+            <div id="raised-hands-list" style="display:flex;flex-direction:column;gap:4px;"></div>
           </div>
         </div>
 
@@ -987,7 +1019,33 @@ function showScreen(name){
    SCREEN 1 — LANDING
 ══════════════════════════════════════════════════════ */
 (function initLanding(){
-  // Role card selection
+  // ── Check if this is an invite link (?r= in URL) ──
+  const urlRoom = new URLSearchParams(location.search).get('r')
+                ||new URLSearchParams(location.search).get('room');
+
+  if(urlRoom){
+    // INVITE MODE — student joining via shared link
+    // Hide the default UI, show the simple invite UI
+    $('landing-default').style.display = 'none';
+    $('landing-invite').style.display  = 'block';
+    $('invite-room-label').textContent = 'Room: ' + urlRoom;
+    _myRole = 'student'; // always student when joining via invite
+    _roomId = urlRoom;
+    _className = 'Class';
+
+    $('btn-join-invite').addEventListener('click',()=>{
+      const name = ($('name-input-invite').value||'').trim();
+      if(!name){ showToast('Please enter your name'); $('name-input-invite').focus(); return; }
+      _myName = name;
+      goToPreJoin(false);
+    });
+    $('name-input-invite').addEventListener('keydown',e=>{
+      if(e.key==='Enter') $('btn-join-invite').click();
+    });
+    return; // don't wire up the default landing buttons
+  }
+
+  // ── DEFAULT MODE — create or manual join ──
   document.querySelectorAll('.role-card').forEach(card=>{
     card.addEventListener('click',()=>{
       document.querySelectorAll('.role-card').forEach(c=>c.classList.remove('selected'));
@@ -1022,10 +1080,9 @@ function showScreen(name){
     goToPreJoin(false);
   });
 
-  // Auto-fill room from URL
-  const urlRoom = new URLSearchParams(location.search).get('r')
-                ||new URLSearchParams(location.search).get('room');
-  if(urlRoom) $('join-room-input').value = urlRoom;
+  $('name-input').addEventListener('keydown',e=>{
+    if(e.key==='Enter') $('btn-create-room').click();
+  });
 })();
 
 /* ══════════════════════════════════════════════════════
@@ -1282,8 +1339,16 @@ function initMeetingUI(){
 }
 
 function updateInstructorUI(){
+  const isInstr = _myRole==='instructor';
+  // Show instructor control panel
   const ic=$('instr-controls');
-  if(ic) ic.style.display = _myRole==='instructor' ? 'block' : 'none';
+  if(ic) ic.style.display = isInstr ? 'block' : 'none';
+  // Hide hand-raise button for instructor — instructor sees hands, doesn't raise them
+  const handBtn=$('ctrl-hand');
+  if(handBtn) handBtn.style.display = isInstr ? 'none' : 'flex';
+  // Show CSV export only for instructor
+  const csvBtn=$('btn-export-csv');
+  if(csvBtn) csvBtn.style.display = isInstr ? 'inline-flex' : 'none';
 }
 
 /* ══════════════════════════════════════════════════════
@@ -1474,6 +1539,26 @@ function renderAttendance(){
   const list=$('student-list');
   let present=0;
   list.innerHTML='';
+
+  // Update raised-hands panel (instructor only)
+  if(_myRole==='instructor'){
+    const raised=[..._students.entries()].filter(([pid])=>_peerHands[pid]||(_myPeerId===pid&&_handUp));
+    const section=$('raised-hands-section');
+    const handslist=$('raised-hands-list');
+    const count=$('raised-hands-count');
+    if(section&&handslist&&count){
+      count.textContent=raised.length;
+      section.style.display=raised.length?'block':'none';
+      handslist.innerHTML='';
+      raised.forEach(([pid,s])=>{
+        const row=document.createElement('div');
+        row.style.cssText='display:flex;align-items:center;gap:6px;font-size:.78rem;';
+        row.innerHTML=`<span style="font-size:.9rem;">✋</span><span style="font-weight:600;">${escHtml(s.name)}</span>`;
+        handslist.appendChild(row);
+      });
+    }
+  }
+
   _students.forEach((s,pid)=>{
     if(s.present) present++;
     const item=document.createElement('div');
@@ -1907,12 +1992,14 @@ function handleData(from, d){
       if(d.role) _peerRoles[from]=d.role;
       _peerMuted[from]  = !d.micOn;
       _peerCamOff[from] = !d.camOn;
+      const prevHand=_peerHands[from];
       _peerHands[from]  = !!d.handUp;
-      // Update attendance entry if name changed
-      const stu=_students.get(from);
-      if(stu&&d.name) stu.name=d.name;
+      { const stu=_students.get(from); if(stu&&d.name) stu.name=d.name; }
       patchVideoGrid();
       renderAttendance();
+      if(_myRole==='instructor'&&!prevHand&&_peerHands[from]){
+        showToast(`✋ ${_peerNames[from]||'A student'} raised their hand`);
+      }
       break;
     case 'edu-chat':
       appendChat(d.name||_peerNames[from]||'Peer', d.text, false);
@@ -1944,12 +2031,7 @@ function handleData(from, d){
   }
 }
 
-/* ── Handle ?r= URL param ── */
-(()=>{
-  const r=new URLSearchParams(location.search).get('r')
-        ||new URLSearchParams(location.search).get('room');
-  if(r) $('join-room-input').value=r;
-})();
+/* URL params handled in initLanding() */
+
+/* URL params handled in initLanding() */
 </script>
-</body>
-</html>
