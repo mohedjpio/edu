@@ -1704,7 +1704,8 @@ function renderAttendance(){
     av.textContent=(s.name[0]||'?').toUpperCase();
     const info=document.createElement('div');
     info.className='student-info';
-    info.innerHTML=`<div class="student-name">${escHtml(s.name)}${s.role==='instructor'?' 🎓':''}</div><div class="student-joined">Joined ${fmtTime(s.joinedAt)}</div>`;
+    const leftStr=s.leftAt?` · Left ${fmtTime(s.leftAt)}`:'';
+    info.innerHTML=`<div class="student-name">${escHtml(s.name)}${s.role==='instructor'?' 🎓':''}</div><div class="student-joined">Joined ${fmtTime(s.joinedAt)}${leftStr}</div>`;
     const status=document.createElement('div');
     status.className='student-status '+(s.role==='instructor'?'instructor':s.present?'present':'absent');
     status.innerHTML=s.role==='instructor'
@@ -1958,14 +1959,16 @@ async function handleSignal(msg){
     case 'peer_left':{
       const pid=msg.peerId;
       const who=_peerNames[pid]||'Someone';
-      cleanupPeer(pid);
-      delete _peerNames[pid]; delete _peerRoles[pid];
-      delete _peerMuted[pid]; delete _peerCamOff[pid]; delete _peerHands[pid];
+      // Mark left time BEFORE cleanup so name is still available
       const s=_students.get(pid);
-      if(s) s.present=false;
+      if(s){ s.present=false; s.leftAt=Date.now(); }
+      cleanupPeer(pid);
+      // Keep name/role for attendance display — only clear live state
+      delete _peerMuted[pid]; delete _peerCamOff[pid]; delete _peerHands[pid];
+      // DO NOT delete _peerNames[pid] or _students entry — they stay in the record
       renderAttendance();
       patchVideoGrid();
-      showToast(`👋 ${who} left`);
+      showToast(`👋 ${who} left the class`);
       break;
     }
     case 'offer':
@@ -2084,8 +2087,17 @@ function createPC(peerId, isOfferer){
       const spotStream=new MediaStream([track]);
       showSpotlight(spotStream, `🖥 ${_peerNames[peerId]||'Instructor'} is sharing their screen`);
       track.addEventListener('ended', hideSpotlight);
+    } else if(track.kind==='audio'){
+      // Audio track — play via a dedicated hidden <audio> element.
+      // NEVER rely on the grid <video> element for audio:
+      // if the peer has no camera the video element doesn't exist or is hidden.
+      attachRemoteAudio(peerId, track);
+      // Also add to peerStream so meta info is accurate
+      if(!_peerStreams[peerId]) _peerStreams[peerId]=new MediaStream();
+      if(!_peerStreams[peerId].getTracks().find(x=>x.id===track.id))
+        _peerStreams[peerId].addTrack(track);
     } else {
-      // Regular cam/mic track — add to peer stream for the video grid
+      // Regular video track — add to peer stream for the video grid
       if(!_peerStreams[peerId]) _peerStreams[peerId]=new MediaStream();
       if(!_peerStreams[peerId].getTracks().find(x=>x.id===track.id))
         _peerStreams[peerId].addTrack(track);
@@ -2123,12 +2135,45 @@ function wireDataChannel(dc, peerId){
     console.log('[edumeet] DC open →',peerId.slice(0,6));
     // Send our meta immediately on open
     dcSend(peerId,{type:'edu-meta',name:_myName,role:_myRole,micOn:_micOn,camOn:_camOn,handUp:_handUp});
+    // Flush any messages that were queued before DC opened
+    flushDcQueue(peerId);
   };
   dc.onmessage=e=>{
     try{ handleData(peerId,JSON.parse(e.data)); }catch{}
   };
   dc.onerror=e=>console.warn('[edumeet] DC error',e);
   dc.onclose=()=>console.log('[edumeet] DC closed',peerId.slice(0,6));
+}
+
+// ── Remote audio elements — one hidden <audio> per remote peer ────────────
+// Stored outside the DOM tree to avoid layout interference
+const _audioEls = {}; // peerId → HTMLAudioElement
+
+function attachRemoteAudio(peerId, track){
+  let el = _audioEls[peerId];
+  if(!el){
+    el = document.createElement('audio');
+    el.autoplay = true;
+    el.style.display = 'none';
+    document.body.appendChild(el);
+    _audioEls[peerId] = el;
+  }
+  // Build/update a stream with this audio track
+  if(!el.srcObject) el.srcObject = new MediaStream();
+  // Replace any existing audio track with the new one
+  el.srcObject.getAudioTracks().forEach(t => el.srcObject.removeTrack(t));
+  el.srcObject.addTrack(track);
+  el.play().catch(e => {
+    // Autoplay blocked — will play on next user interaction
+    console.warn('[edumeet] audio autoplay blocked:', e.message);
+    const resume = () => { el.play().catch(()=>{}); document.removeEventListener('click', resume); };
+    document.addEventListener('click', resume, {once:true});
+  });
+}
+
+function removeRemoteAudio(peerId){
+  const el = _audioEls[peerId];
+  if(el){ el.srcObject=null; el.remove(); delete _audioEls[peerId]; }
 }
 
 function cleanupPeer(peerId){
@@ -2138,6 +2183,7 @@ function cleanupPeer(peerId){
     pc.ontrack=null; pc.ondatachannel=null;
     pc.close();
   }
+  removeRemoteAudio(peerId);
   delete _peerConns[peerId];
   delete _peerStreams[peerId];
   delete _peerDCs[peerId];
@@ -2148,11 +2194,30 @@ function cleanupPeer(peerId){
    All app data (chat, meta, polls, announcements) goes over DataChannels only.
    WebSocket is signaling-only.
 ══════════════════════════════════════════════════════ */
+// Per-peer message queue — holds messages sent before DC is open
+const _dcQueues = {}; // peerId → [{data, ts}]
+
 function dcSend(peerId, data){
   const dc=_peerDCs[peerId];
   if(dc?.readyState==='open'){
     try{ dc.send(JSON.stringify(data)); }catch(e){ console.warn('[edumeet] dcSend failed',e); }
+  } else {
+    // Queue the message — will be flushed when DC opens
+    if(!_dcQueues[peerId]) _dcQueues[peerId]=[];
+    _dcQueues[peerId].push(data);
   }
+}
+
+function flushDcQueue(peerId){
+  const queue=_dcQueues[peerId];
+  if(!queue||!queue.length) return;
+  const dc=_peerDCs[peerId];
+  if(dc?.readyState!=='open') return;
+  while(queue.length){
+    const data=queue.shift();
+    try{ dc.send(JSON.stringify(data)); }catch{}
+  }
+  delete _dcQueues[peerId];
 }
 
 function broadcastData(data){
