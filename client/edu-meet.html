@@ -1189,7 +1189,13 @@ function populateDevices(devices){
 
 async function startPreview(){
   if(_previewStream){ _previewStream.getTracks().forEach(t=>t.stop()); _previewStream=null; }
-  const aConst={echoCancellation:true,noiseSuppression:true,autoGainControl:true};
+  const aConst={
+    echoCancellation:true,
+    noiseSuppression:true,
+    autoGainControl:true,
+    // Chrome-specific: suppress playback from being re-captured by mic
+    suppressLocalAudioPlayback:true,
+  };
   const vConst={width:{ideal:1280},height:{ideal:720},facingMode:'user'};
 
   // Progressive fallback: cam+mic → mic-only → cam-only → nothing
@@ -1260,7 +1266,7 @@ async function enterMeeting(){
 
   // Build final stream — graceful degradation, NEVER blocks entry
   const camId=$('sel-cam').value, micId=$('sel-mic').value;
-  const aConst=Object.assign({echoCancellation:true,noiseSuppression:true,autoGainControl:true},
+  const aConst=Object.assign({echoCancellation:true,noiseSuppression:true,autoGainControl:true,suppressLocalAudioPlayback:true},
     micId?{deviceId:{exact:micId}}:{});
   const vConst=Object.assign({width:{ideal:1280},height:{ideal:720}},
     camId?{deviceId:{exact:camId}}:{});
@@ -1432,7 +1438,7 @@ function patchVideoGrid(){
       if(!vid){
         vid=document.createElement('video');
         vid.autoplay=true; vid.playsInline=true;
-        if(p.local) vid.muted=true;
+        vid.muted=true; // ALL video elements muted — audio handled by <audio> elements
         cell.prepend(vid);
       }
       if(vid.srcObject!==p.stream) vid.srcObject=p.stream;
@@ -1480,6 +1486,7 @@ function patchVideoGrid(){
 ══════════════════════════════════════════════════════ */
 function toggleMic(){
   _micOn=!_micOn;
+  // Only affect local microphone track — never touch remote <audio> elements
   _localStream?.getAudioTracks().forEach(t=>t.enabled=_micOn);
   const btn=$('ctrl-mic');
   btn.classList.toggle('off',!_micOn);
@@ -2088,14 +2095,12 @@ function createPC(peerId, isOfferer){
       showSpotlight(spotStream, `🖥 ${_peerNames[peerId]||'Instructor'} is sharing their screen`);
       track.addEventListener('ended', hideSpotlight);
     } else if(track.kind==='audio'){
-      // Audio track — play via a dedicated hidden <audio> element.
-      // NEVER rely on the grid <video> element for audio:
-      // if the peer has no camera the video element doesn't exist or is hidden.
+      // Audio track — ONLY play via the dedicated hidden <audio> element.
+      // Audio tracks must NEVER be added to _peerStreams (which feeds the
+      // grid <video> srcObject). If they were, audio would play from both
+      // the <audio> element and the <video> element simultaneously,
+      // causing echo/doubling. Keep them completely separate.
       attachRemoteAudio(peerId, track);
-      // Also add to peerStream so meta info is accurate
-      if(!_peerStreams[peerId]) _peerStreams[peerId]=new MediaStream();
-      if(!_peerStreams[peerId].getTracks().find(x=>x.id===track.id))
-        _peerStreams[peerId].addTrack(track);
     } else {
       // Regular video track — add to peer stream for the video grid
       if(!_peerStreams[peerId]) _peerStreams[peerId]=new MediaStream();
@@ -2150,25 +2155,47 @@ function wireDataChannel(dc, peerId){
 const _audioEls = {}; // peerId → HTMLAudioElement
 
 function attachRemoteAudio(peerId, track){
-  let el = _audioEls[peerId];
+  // Skip if this exact track is already attached and playing
+  const existing = _audioEls[peerId];
+  if(existing?.srcObject?.getAudioTracks().find(t=>t.id===track.id)) return;
+
+  let el = existing;
   if(!el){
     el = document.createElement('audio');
-    el.autoplay = true;
-    el.style.display = 'none';
+    el.autoplay  = true;   // attempt autoplay
+    el.muted     = false;  // NEVER muted — this is the audio output
+    el.volume    = 1.0;
+    el.style.cssText = 'position:fixed;width:0;height:0;opacity:0;pointer-events:none';
     document.body.appendChild(el);
     _audioEls[peerId] = el;
   }
-  // Build/update a stream with this audio track
-  if(!el.srcObject) el.srcObject = new MediaStream();
-  // Replace any existing audio track with the new one
-  el.srcObject.getAudioTracks().forEach(t => el.srcObject.removeTrack(t));
-  el.srcObject.addTrack(track);
-  el.play().catch(e => {
-    // Autoplay blocked — will play on next user interaction
-    console.warn('[edumeet] audio autoplay blocked:', e.message);
-    const resume = () => { el.play().catch(()=>{}); document.removeEventListener('click', resume); };
-    document.addEventListener('click', resume, {once:true});
-  });
+
+  // Fresh audio-only MediaStream — no video tracks, no shared refs
+  const audioStream = new MediaStream([track]);
+  el.srcObject = audioStream;
+
+  // Route to selected output device if browser supports setSinkId
+  const spkId = $('sel-spk')?.value;
+  if(spkId && typeof el.setSinkId === 'function'){
+    el.setSinkId(spkId).catch(()=>{});
+  }
+
+  const tryPlay = () =>
+    el.play().catch(err => {
+      if(err.name === 'NotAllowedError'){
+        // Autoplay policy blocked — resume on first user gesture
+        const unlock = () => {
+          el.play().catch(()=>{});
+          ['click','keydown','touchstart'].forEach(ev=>
+            document.removeEventListener(ev, unlock));
+        };
+        ['click','keydown','touchstart'].forEach(ev=>
+          document.addEventListener(ev, unlock, {once:true, passive:true}));
+      }
+    });
+
+  // Small delay avoids race between srcObject assignment and play()
+  setTimeout(tryPlay, 50);
 }
 
 function removeRemoteAudio(peerId){
