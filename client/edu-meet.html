@@ -1990,12 +1990,19 @@ async function createOffer(peerId){
 
 async function handleOffer(msg){
   const peerId=msg.from;
-  const pc=createPC(peerId, false /*isAnswerer*/);
+  // If a connection already exists for this peer this is a RE-OFFER
+  // (renegotiation — e.g. instructor started screen share).
+  // Reuse the existing PC; do NOT call createPC() which would destroy it.
+  let pc=_peerConns[peerId];
+  if(!pc){
+    // First offer from this peer — create a fresh PC as answerer
+    pc=createPC(peerId, false);
+  }
   try{
     await pc.setRemoteDescription(new RTCSessionDescription(msg.sdp));
     const answer=await pc.createAnswer();
     await pc.setLocalDescription(answer);
-    wsSend({type:'answer',to:peerId,sdp:pc.localDescription});
+    wsSend({type:'answer', to:peerId, sdp:pc.localDescription});
   }catch(e){ console.error('[edumeet] handleOffer failed',e); }
 }
 
@@ -2049,14 +2056,20 @@ function createPC(peerId, isOfferer){
     // getDisplayMedia video tracks have a label containing 'screen', 'window', 'display',
     // or 'web-contents' — camera tracks never do.
     const lbl=(track.label||'').toLowerCase();
+    // How many video tracks does this peer already have in their stream?
+    const existingVideoCount=(_peerStreams[peerId]?.getVideoTracks().length)||0;
     const isScreenTrack = track.kind==='video' && (
+      // Primary: getDisplayMedia tracks always have these label patterns
       lbl.includes('screen') ||
       lbl.includes('window') ||
       lbl.includes('display') ||
       lbl.includes('monitor') ||
       lbl.includes('web-contents') ||
-      // Fallback: stream has 2 video tracks — one cam, one screen
-      (e.streams[0] && e.streams[0].getVideoTracks().length > 1)
+      lbl.includes('tab') ||
+      // Fallback A: incoming stream already carries another video track
+      (e.streams[0] && e.streams[0].getVideoTracks().length > 1) ||
+      // Fallback B: peer already has a video track — this second one is screen
+      existingVideoCount >= 1
     );
 
     if(isScreenTrack){
@@ -2190,10 +2203,21 @@ function handleData(from, d){
       if(_activePoll) renderPollResults(_activePoll);
       break;
     case 'edu-screen-start':
-      // Instructor started sharing — the actual video arrives via ontrack.
-      // We just show a "waiting for screen" indicator if it hasn't arrived yet.
       _peerSharing=from;
-      showToast(`🖥 ${d.sharer||_peerNames[from]||'Instructor'} started screen share`);
+      showToast(`🖥 ${d.sharer||_peerNames[from]||'Instructor'} is sharing their screen`);
+      // If ontrack already delivered the screen track but spotlight wasn't shown
+      // (e.g. DC message arrived first), check the peer's stream now.
+      {
+        const ps=_peerStreams[from];
+        if(ps){
+          const vts=ps.getVideoTracks();
+          // If peer has >1 video track, the extra one is the screen
+          if(vts.length>1){
+            const scrStream=new MediaStream([vts[vts.length-1]]);
+            showSpotlight(scrStream,`🖥 ${d.sharer||_peerNames[from]||'Instructor'} is sharing`);
+          }
+        }
+      }
       break;
     case 'edu-screen-stop':
       _peerSharing=null;
