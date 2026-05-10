@@ -1501,51 +1501,77 @@ function toggleCam(){
   patchVideoGrid();
 }
 
-// ID of the screen video track currently being sent
+// Track ID being screen-shared (used to restore camera on stop)
 let _screenSenderId = null;
+// Saved camera track so we can restore it after screen share stops
+let _savedCamTrack  = null;
 
 async function toggleScreen(){
   if(_screenSharing){
-    // ── Stop sharing ──
+    // ── STOP sharing ──────────────────────────────────────────────────────
     _screenStream?.getTracks().forEach(t=>t.stop());
     _screenStream=null; _screenSharing=false;
 
-    // Update instructor UI
+    // Restore camera track on every sender that was replaced
+    const camTrack = _localStream?.getVideoTracks()[0] || _savedCamTrack;
+    for(const pc of Object.values(_peerConns)){
+      const sender=pc.getSenders().find(s=>s.track?.kind==='video');
+      if(sender){
+        // Replace screen track back with camera (or null if no camera)
+        await sender.replaceTrack(camTrack||null).catch(()=>{});
+      }
+    }
+    _screenSenderId=null; _savedCamTrack=null;
+
+    // Update UI
     $('ctrl-screen').classList.remove('off');
     $('ctrl-screen').querySelector('span').textContent='Share';
     $('screenshare-banner').classList.remove('visible');
     hideSpotlight();
 
-    // Remove screen track sender and renegotiate with each peer
-    for(const [pid, pc] of Object.entries(_peerConns)){
-      const sender=pc.getSenders().find(s=>s.track?.id===_screenSenderId);
-      if(sender) try{ pc.removeTrack(sender); }catch{}
-      // Renegotiate so remote peer knows the track is gone
-      await renegotiate(pc, pid);
-    }
-    _screenSenderId=null;
-
-    // Signal students to hide spotlight
+    // Tell students to hide spotlight
     broadcastData({type:'edu-screen-stop'});
 
   } else {
-    // ── Start sharing ──
+    // ── START sharing ─────────────────────────────────────────────────────
     let stream;
     try{
       stream=await navigator.mediaDevices.getDisplayMedia({
         video:{frameRate:{ideal:30},displaySurface:'monitor'},
-        audio:true
+        audio:false   // keep audio simple — avoids codec negotiation issues
       });
     }catch(e){
-      if(e.name!=='NotAllowedError') showToast('Screen share failed');
+      if(e.name!=='NotAllowedError') showToast('Screen share cancelled');
       return;
     }
 
     _screenStream=stream; _screenSharing=true;
     const scrTrack=stream.getVideoTracks()[0];
-    // Tag the track so ontrack on remote side can identify it reliably
-    scrTrack._isScreenTrack=true;
     _screenSenderId=scrTrack.id;
+
+    // Save the camera track so we can restore it later
+    _savedCamTrack=_localStream?.getVideoTracks()[0]||null;
+
+    // ── replaceTrack on every peer connection ─────────────────────────────
+    // replaceTrack() swaps the media on an EXISTING sender — no renegotiation,
+    // no new offer/answer needed. The track arrives at the student immediately.
+    // If the instructor has no camera sender (cam was off), addTrack + manual
+    // renegotiation via onnegotiationneeded is used as fallback.
+    for(const [pid, pc] of Object.entries(_peerConns)){
+      const videoSender=pc.getSenders().find(s=>s.track?.kind==='video'||s.track===null);
+      if(videoSender){
+        // Happy path — swap existing video sender with screen track
+        await videoSender.replaceTrack(scrTrack).catch(e=>{
+          console.warn('[edumeet] replaceTrack failed:',e.message);
+        });
+      } else {
+        // No video sender yet (instructor had camera off from the start)
+        // Add the screen track and let onnegotiationneeded handle renegotiation
+        pc.addTrack(scrTrack, stream);
+        // Manually trigger renegotiation since onnegotiationneeded may not fire
+        _triggerRenegotiation(pc, pid);
+      }
+    }
 
     // Update instructor UI
     $('ctrl-screen').classList.add('off');
@@ -1553,40 +1579,32 @@ async function toggleScreen(){
     $('screenshare-banner').classList.add('visible');
     showSpotlight(stream, 'You are sharing your screen');
 
-    // Add screen track to each peer connection then renegotiate
-    // Renegotiation is REQUIRED — addTrack alone never delivers the track
-    for(const [pid, pc] of Object.entries(_peerConns)){
-      // Check if we already added this track to avoid duplicate senders
-      const already=pc.getSenders().find(s=>s.track?.id===scrTrack.id);
-      if(!already) pc.addTrack(scrTrack, stream);
-
-      // Add screen audio if present
-      const scrAudio=stream.getAudioTracks()[0];
-      if(scrAudio){
-        const hasAudio=pc.getSenders().find(s=>s.track?.id===scrAudio.id);
-        if(!hasAudio) try{ pc.addTrack(scrAudio, stream); }catch{}
-      }
-
-      // Renegotiate — this is what actually delivers the track to students
-      await renegotiate(pc, pid);
-    }
-
-    // Signal students to show spotlight (they'll also get the track via ontrack)
+    // Tell students to show spotlight
     broadcastData({type:'edu-screen-start',sharer:_myName});
 
-    // Browser's "Stop sharing" button
-    scrTrack.addEventListener('ended', ()=>{ if(_screenSharing) toggleScreen(); });
+    // Browser "Stop sharing" button
+    scrTrack.addEventListener('ended',()=>{ if(_screenSharing) toggleScreen(); });
   }
 }
 
-// Renegotiate an existing peer connection (create new offer and send it)
-async function renegotiate(pc, peerId){
+// Only used when instructor had NO camera and needs to add a brand-new video sender.
+// replaceTrack() handles the normal case with no renegotiation.
+async function _triggerRenegotiation(pc, peerId){
   try{
+    // Wait for signalingState to be stable before creating a new offer
+    if(pc.signalingState!=='stable'){
+      await new Promise(res=>{
+        const check=setInterval(()=>{
+          if(pc.signalingState==='stable'){ clearInterval(check); res(); }
+        },100);
+        setTimeout(()=>{ clearInterval(check); res(); },3000); // safety timeout
+      });
+    }
     const offer=await pc.createOffer();
     await pc.setLocalDescription(offer);
     wsSend({type:'offer', to:peerId, sdp:pc.localDescription});
   }catch(e){
-    console.warn('[edumeet] renegotiate failed for',peerId?.slice(0,6),e.message);
+    console.warn('[edumeet] _triggerRenegotiation failed:',e.message);
   }
 }
 
@@ -1594,19 +1612,18 @@ async function renegotiate(pc, peerId){
 function showSpotlight(stream, label){
   const el=$('screen-spotlight');
   const vid=$('screen-spotlight-video');
-  const wrap=$('screen-spotlight')?.closest('.video-grid-wrap') ||
-             document.querySelector('.video-grid-wrap');
+  const wrap=document.querySelector('.video-grid-wrap');
   const lbl=$('screen-spotlight-label');
   if(!el||!vid) return;
 
-  // Set stream BEFORE making visible (avoids blank-frame flash)
-  vid.srcObject=stream;
-  // autoplay attribute handles play; explicit play() as fallback
-  const playPromise=vid.play();
-  if(playPromise) playPromise.catch(()=>{ vid.muted=true; vid.play().catch(()=>{}); });
+  // Clone the stream into a new MediaStream so the spotlight video element
+  // is independent from the grid tile's video element (both can play the same tracks)
+  const spotStream=new MediaStream(stream.getTracks());
+  vid.srcObject=spotStream;
+  vid.muted=true; // always muted to prevent echo; screen audio plays via peer audio track
+  vid.play().catch(()=>{});
 
   if(lbl) lbl.textContent=label||'Screen sharing active';
-  // Swap layout: hide grid, show spotlight as flex child
   el.classList.add('visible');
   if(wrap) wrap.classList.add('screen-active');
 }
@@ -1617,10 +1634,7 @@ function hideSpotlight(){
   if(!el) return;
   el.classList.remove('visible');
   if(wrap) wrap.classList.remove('screen-active');
-  if(vid){
-    vid.pause();
-    vid.srcObject=null;
-  }
+  if(vid){ vid.pause(); vid.srcObject=null; }
 }
 
 function toggleHand(){
@@ -2023,17 +2037,10 @@ function createPC(peerId, isOfferer){
   if(_localStream){
     _localStream.getTracks().forEach(t=>pc.addTrack(t,_localStream));
   }
-  // If instructor is already sharing screen when a new peer joins, add the screen track.
-  // We don't renegotiate here — the initial offer/answer exchange that follows
-  // createPC() will include all currently added tracks automatically.
-  if(_screenSharing && _screenStream){
-    const scrTrack=_screenStream.getVideoTracks()[0];
-    if(scrTrack && scrTrack.readyState!=='ended'){
-      pc.addTrack(scrTrack, _screenStream);
-      const scrAudio=_screenStream.getAudioTracks()[0];
-      if(scrAudio) try{ pc.addTrack(scrAudio, _screenStream); }catch{}
-    }
-  }
+  // If instructor is already sharing screen when a new peer joins:
+  // The _localStream's video track was already replaced with the screen track via replaceTrack.
+  // So addTrack(_localStream tracks) above already includes the screen video.
+  // No extra work needed — the initial offer carries the screen track automatically.
 
   // ICE candidates — server uses type 'ice-candidate'
   pc.onicecandidate=e=>{
@@ -2204,24 +2211,36 @@ function handleData(from, d){
       break;
     case 'edu-screen-start':
       _peerSharing=from;
-      showToast(`🖥 ${d.sharer||_peerNames[from]||'Instructor'} is sharing their screen`);
-      // If ontrack already delivered the screen track but spotlight wasn't shown
-      // (e.g. DC message arrived first), check the peer's stream now.
+      // With replaceTrack, the peer's existing MediaStream in _peerStreams[from]
+      // already carries the screen video — the track was swapped in-place.
+      // Feed that stream directly to the spotlight.
       {
+        const sharerName=d.sharer||_peerNames[from]||'Instructor';
         const ps=_peerStreams[from];
-        if(ps){
-          const vts=ps.getVideoTracks();
-          // If peer has >1 video track, the extra one is the screen
-          if(vts.length>1){
-            const scrStream=new MediaStream([vts[vts.length-1]]);
-            showSpotlight(scrStream,`🖥 ${d.sharer||_peerNames[from]||'Instructor'} is sharing`);
-          }
+        if(ps && ps.getVideoTracks().length>0){
+          // Stream is live — show it in the spotlight immediately
+          showSpotlight(ps, `🖥 ${sharerName} is sharing their screen`);
+        } else {
+          // Stream not ready yet — show placeholder and wait for first video track
+          showToast(`🖥 ${sharerName} started screen sharing`);
+          // Poll briefly for the stream to carry video (replaceTrack may take ~100ms)
+          let attempts=0;
+          const wait=setInterval(()=>{
+            attempts++;
+            const s=_peerStreams[from];
+            if(s && s.getVideoTracks().some(t=>t.readyState==='live')){
+              clearInterval(wait);
+              showSpotlight(s, `🖥 ${sharerName} is sharing their screen`);
+            } else if(attempts>30){ clearInterval(wait); } // give up after 3s
+          },100);
         }
       }
       break;
     case 'edu-screen-stop':
       _peerSharing=null;
       hideSpotlight();
+      // Restore the video grid — the peer stream now carries the camera track again
+      patchVideoGrid();
       showToast('🖥 Screen share ended');
       break;
     case 'edu-end-class':
