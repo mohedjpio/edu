@@ -259,7 +259,7 @@ body{
 /* Video grid */
 .video-grid-wrap{
   flex:1;padding:12px;display:flex;flex-direction:column;
-  background:var(--bg);min-width:0;
+  background:var(--bg);min-width:0;position:relative;
 }
 .video-grid{
   flex:1;display:grid;gap:8px;
@@ -429,6 +429,25 @@ body{
   align-items:center;justify-content:center;gap:6px;
 }
 .screenshare-banner.visible{display:flex;}
+
+/* Screen share spotlight — fills the video area, shown to all participants */
+.screen-spotlight{
+  display:none;
+  position:absolute;inset:0;z-index:50;
+  background:#000;flex-direction:column;
+}
+.screen-spotlight.visible{display:flex;}
+.screen-spotlight video{
+  width:100%;flex:1;object-fit:contain;
+  background:#000;
+}
+.screen-spotlight-bar{
+  flex-shrink:0;height:36px;
+  display:flex;align-items:center;justify-content:center;gap:8px;
+  background:rgba(0,0,0,.7);
+  font-size:.78rem;color:var(--amber);font-weight:600;
+}
+.video-grid-wrap{position:relative;}
 
 /* Poll overlay */
 .poll-overlay{
@@ -759,6 +778,14 @@ body{
     <div class="video-grid-wrap">
       <div class="video-grid" id="video-grid">
         <!-- Populated by JS -->
+      </div>
+      <!-- Screen share spotlight — shown to all participants when instructor shares -->
+      <div class="screen-spotlight" id="screen-spotlight">
+        <video id="screen-spotlight-video" autoplay playsinline muted></video>
+        <div class="screen-spotlight-bar">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+          <span id="screen-spotlight-label">Instructor is sharing their screen</span>
+        </div>
       </div>
     </div>
 
@@ -1349,6 +1376,9 @@ function updateInstructorUI(){
   // Show CSV export only for instructor
   const csvBtn=$('btn-export-csv');
   if(csvBtn) csvBtn.style.display = isInstr ? 'inline-flex' : 'none';
+  // Hide screen share button for students — only instructor can share
+  const scrBtn=$('ctrl-screen');
+  if(scrBtn) scrBtn.style.display = isInstr ? 'flex' : 'none';
 }
 
 /* ══════════════════════════════════════════════════════
@@ -1471,34 +1501,98 @@ function toggleCam(){
 
 async function toggleScreen(){
   if(_screenSharing){
+    // ── Stop sharing ──
     _screenStream?.getTracks().forEach(t=>t.stop());
     _screenStream=null; _screenSharing=false;
+
+    // Update instructor UI
     $('ctrl-screen').classList.remove('off');
     $('ctrl-screen').querySelector('span').textContent='Share';
     $('screenshare-banner').classList.remove('visible');
-    // Restore cam track to all peer connections
-    const camTrack=_localStream?.getVideoTracks()[0];
-    if(camTrack){
-      for(const pc of Object.values(_peerConns)){
-        const sender=pc.getSenders().find(s=>s.track?.kind==='video');
-        if(sender) sender.replaceTrack(camTrack).catch(()=>{});
-      }
+    // Hide instructor's own spotlight
+    hideSpotlight();
+
+    // Remove the screen sender from all peer connections
+    for(const pc of Object.values(_peerConns)){
+      const sender=pc.getSenders().find(s=>s.track?.id===_screenSenderId);
+      if(sender){ try{ pc.removeTrack(sender); }catch{} }
     }
+    _screenSenderId=null;
+
+    // Tell all students to hide the spotlight
+    broadcastData({type:'edu-screen-stop'});
+
   } else {
+    // ── Start sharing ──
+    let stream;
     try{
-      _screenStream=await navigator.mediaDevices.getDisplayMedia({video:true,audio:true});
-      _screenSharing=true;
-      $('ctrl-screen').classList.add('off');
-      $('ctrl-screen').querySelector('span').textContent='Stop Share';
-      $('screenshare-banner').classList.add('visible');
-      const scrTrack=_screenStream.getVideoTracks()[0];
-      for(const pc of Object.values(_peerConns)){
-        const sender=pc.getSenders().find(s=>s.track?.kind==='video');
+      stream=await navigator.mediaDevices.getDisplayMedia({
+        video:{frameRate:{ideal:30},displaySurface:'monitor'},
+        audio:true
+      });
+    }catch(e){
+      if(e.name!=='NotAllowedError') showToast('Screen share failed');
+      return;
+    }
+
+    _screenStream=stream; _screenSharing=true;
+    const scrTrack=stream.getVideoTracks()[0];
+
+    // Update instructor UI
+    $('ctrl-screen').classList.add('off');
+    $('ctrl-screen').querySelector('span').textContent='Stop Share';
+    $('screenshare-banner').classList.add('visible');
+    // Show instructor's own spotlight immediately
+    showSpotlight(stream, 'You are sharing your screen');
+
+    // Add screen VIDEO track to every existing peer connection.
+    // We wrap it in a video-only MediaStream so ontrack on the remote side
+    // can distinguish it from cam tracks (screen stream has no audio track).
+    _screenSenderId = scrTrack.id;
+    const scrVideoOnlyStream = new MediaStream([scrTrack]);
+    for(const pc of Object.values(_peerConns)){
+      try{ pc.addTrack(scrTrack, scrVideoOnlyStream); }catch(err){
+        // If track already added, use replaceTrack on any stale video sender
+        const sender=pc.getSenders().find(s=>s.track?.kind==='video'&&s.track?.id!==scrTrack.id);
         if(sender) sender.replaceTrack(scrTrack).catch(()=>{});
       }
-      scrTrack.addEventListener('ended',toggleScreen);
-    }catch(e){ if(e.name!=='NotAllowedError') showToast('Screen share failed'); }
+    }
+    // Also add screen audio if available (as a normal audio track)
+    const scrAudio=stream.getAudioTracks()[0];
+    if(scrAudio){
+      for(const pc of Object.values(_peerConns)){
+        try{ pc.addTrack(scrAudio, stream); }catch{}
+      }
+    }
+
+    // Tell all students to enter spotlight mode
+    broadcastData({type:'edu-screen-start',sharer:_myName});
+
+    // When user stops via browser's own "Stop sharing" button
+    scrTrack.addEventListener('ended', ()=>{ if(_screenSharing) toggleScreen(); });
   }
+}
+
+// Track ID of the screen sender so we can remove it precisely
+let _screenSenderId=null;
+
+// Show the screen spotlight (works for both instructor and students)
+function showSpotlight(stream, label){
+  const el=$('screen-spotlight');
+  const vid=$('screen-spotlight-video');
+  const lbl=$('screen-spotlight-label');
+  if(!el||!vid) return;
+  vid.srcObject=stream;
+  vid.play().catch(()=>{});
+  if(lbl) lbl.textContent=label||'Screen sharing active';
+  el.classList.add('visible');
+}
+function hideSpotlight(){
+  const el=$('screen-spotlight');
+  const vid=$('screen-spotlight-video');
+  if(!el) return;
+  el.classList.remove('visible');
+  if(vid){ vid.srcObject=null; }
 }
 
 function toggleHand(){
@@ -1881,12 +1975,20 @@ function createPC(peerId, isOfferer){
   });
   _peerConns[peerId]=pc;
 
-  // Add local tracks
+  // Add local cam+mic tracks
   if(_localStream){
     _localStream.getTracks().forEach(t=>pc.addTrack(t,_localStream));
-  } else {
-    // Add a dummy track so the peer knows we exist
-    // (omit — just send no tracks; peer will still connect)
+  }
+  // If instructor is already sharing screen when a new peer joins, add the screen track too
+  if(_screenSharing && _screenStream){
+    const scrTrack=_screenStream.getVideoTracks()[0];
+    if(scrTrack && scrTrack.readyState!=='ended'){
+      // Use video-only stream wrapper so remote ontrack can detect it as a screen track
+      pc.addTrack(scrTrack, new MediaStream([scrTrack]));
+      // Screen audio
+      const scrAudio=_screenStream.getAudioTracks()[0];
+      if(scrAudio) try{ pc.addTrack(scrAudio,_screenStream); }catch{}
+    }
   }
 
   // ICE candidates — server uses type 'ice-candidate'
@@ -1903,13 +2005,31 @@ function createPC(peerId, isOfferer){
 
   // Remote tracks
   pc.ontrack=e=>{
-    if(!_peerStreams[peerId]) _peerStreams[peerId]=new MediaStream();
-    e.streams[0]?.getTracks().forEach(t=>{
-      // Avoid duplicate tracks
-      if(!_peerStreams[peerId].getTracks().find(x=>x.id===t.id))
-        _peerStreams[peerId].addTrack(t);
+    const track=e.track;
+    // Screen share track is flagged by a dedicated MediaStream on the screen stream
+    // We distinguish it by checking if it is the instructor's screen track:
+    // The instructor sends the screen as an extra video track on a separate stream (_screenStream).
+    // We detect it by checking if any incoming stream contains ONLY one video track
+    // and has no audio track — that's the screen track stream.
+    const incomingStreams=e.streams;
+    const isScreenTrack = incomingStreams.some(s=>{
+      const vt=s.getVideoTracks(), at=s.getAudioTracks();
+      return vt.length===1 && at.length===0 && vt[0].id===track.id;
     });
-    patchVideoGrid();
+
+    if(isScreenTrack && track.kind==='video'){
+      // This is the instructor's screen share track — show it in the spotlight
+      const spotStream=new MediaStream([track]);
+      showSpotlight(spotStream, `${_peerNames[peerId]||'Instructor'} is sharing their screen`);
+      // When this track ends, hide the spotlight
+      track.addEventListener('ended', hideSpotlight);
+    } else {
+      // Regular cam/mic track — add to peer stream for the video grid
+      if(!_peerStreams[peerId]) _peerStreams[peerId]=new MediaStream();
+      if(!_peerStreams[peerId].getTracks().find(x=>x.id===track.id))
+        _peerStreams[peerId].addTrack(track);
+      patchVideoGrid();
+    }
   };
 
   // DATA CHANNEL — only offerer creates; answerer receives via ondatachannel
@@ -2028,10 +2148,22 @@ function handleData(from, d){
     case 'edu-poll-end':
       if(_activePoll) renderPollResults(_activePoll);
       break;
+    case 'edu-screen-start':
+      // Instructor started sharing — the actual video arrives via ontrack.
+      // We just show a "waiting for screen" indicator if it hasn't arrived yet.
+      _peerSharing=from;
+      showToast(`🖥 ${d.sharer||_peerNames[from]||'Instructor'} started screen share`);
+      break;
+    case 'edu-screen-stop':
+      _peerSharing=null;
+      hideSpotlight();
+      showToast('🖥 Screen share ended');
+      break;
   }
 }
 
-/* URL params handled in initLanding() */
+// Track which peer is currently sharing (used for late-join display)
+let _peerSharing=null;
 
 /* URL params handled in initLanding() */
 </script>

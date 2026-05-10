@@ -10,18 +10,20 @@ const { PORT, PUBLIC_URL, ICE_SERVERS } = require('./config');
 
 const app = express();
 app.use(cors({ origin:'*' }));
-app.use(express.json());
-app.use(express.static(path.join(__dirname, '..', 'client')));
+app.use(express.json({ limit:'16kb' }));   // prevent oversized JSON payloads
 
 function getAppUrl() {
   if (PUBLIC_URL) return PUBLIC_URL;
   return `http://${getLanIp()}:${PORT}`;
 }
 
+// ── API routes MUST be registered BEFORE express.static ──────────────────
+// Static middleware intercepts any path that matches a file on disk.
+// Registering API routes first ensures /health, /api/* are never shadowed.
+
 app.get('/health', (_,res) => res.json({ status:'ok', appUrl:getAppUrl(), ...session.stats(), ts:Date.now() }));
 app.get('/api/ice-servers', (_,res) => res.json({ iceServers:ICE_SERVERS }));
 
-// Create room — now accepts mode: 'p2p' | 'group'
 app.post('/api/room', (req, res) => {
   res.json({ roomId: session.generateRoomId(), mode: req.body?.mode || 'p2p' });
 });
@@ -34,12 +36,16 @@ app.get('/api/server-info', (_,res) => {
   });
 });
 
-// FIX 3: sendBeacon endpoint for clean disconnect on page refresh/close
+// sendBeacon endpoint for clean disconnect on page refresh/close
 app.post('/api/leave', express.text({ type: '*/*' }), (req, res) => {
-  // The body is the JSON {type:'leave'} — we just need to acknowledge it.
-  // Actual peer cleanup is handled server-side when the WebSocket closes.
   res.sendStatus(204);
 });
+
+// 404 handler for unknown /api/* routes (returns JSON, not HTML)
+app.use('/api', (_,res) => res.status(404).json({ error:'not_found' }));
+
+// ── Static files — registered AFTER all API routes ────────────────────────
+app.use(express.static(path.join(__dirname, '..', 'client')));
 
 const server = http.createServer(app);
 setupSignaling(server);

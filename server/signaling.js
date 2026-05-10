@@ -52,11 +52,15 @@ function handleRelay(ws, msg, state) {
   const out = { ...msg, from: state.peerId };
 
   if (msg.to) {
-    // Directed (group mode, ICE restart)
+    // Directed message (standard in group mode)
     const target = room.peers.get(msg.to);
-    if (target) send(target.ws, out);
+    if (target) {
+      send(target.ws, out);
+    } else {
+      send(ws, { type:'error', code:'peer_not_found', message:`Peer ${msg.to} not in room` });
+    }
   } else {
-    // Broadcast (p2p — only one other peer anyway)
+    // Broadcast — only used in p2p mode (2 peers max) or for legacy call-signal
     broadcast(others, out, state.peerId);
   }
 }
@@ -65,9 +69,12 @@ function handleLeave(ws, state) {
   if (!state.peerId) return;
   const peerId  = state.peerId;
   const roomId  = state.roomId;
-  session.leaveRoom(peerId);
+  // Snapshot remaining peers BEFORE leaveRoom() — it may delete the room if last peer
   const room = session.getRoom(roomId);
-  if (room) broadcast([...room.peers.values()], { type: 'peer_left', peerId }, null);
+  const remaining = room ? [...room.peers.values()].filter(p => p.id !== peerId) : [];
+  session.leaveRoom(peerId);
+  // Notify remaining peers
+  if (remaining.length) broadcast(remaining, { type: 'peer_left', peerId }, null);
   console.log(`[signal] ${peerId.slice(0,8)} left`);
   state.peerId = null;
   state.roomId = null;
@@ -117,12 +124,7 @@ function setupSignaling(server) {
     console.log(`[signal] connection from ${req.socket.remoteAddress}`);
   });
 
-  // Send pings to all clients
-  setInterval(() => {
-    for (const ws of wss.clients) {
-      if (ws.readyState === ws.OPEN) ws.ping();
-    }
-  }, HEARTBEAT_INTERVAL_MS);
+  // Note: per-connection heartbeat (hb) handles pings individually — no global ping needed
 
   console.log('[signal] ready on /signal');
   return wss;
