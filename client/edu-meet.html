@@ -430,24 +430,26 @@ body{
 }
 .screenshare-banner.visible{display:flex;}
 
-/* Screen share spotlight — fills the video area, shown to all participants */
+/* Screen share spotlight — replaces video grid entirely when sharing is active */
 .screen-spotlight{
   display:none;
-  position:absolute;inset:0;z-index:50;
-  background:#000;flex-direction:column;
+  flex:1;flex-direction:column;
+  background:#000;min-height:0;min-width:0;
 }
 .screen-spotlight.visible{display:flex;}
 .screen-spotlight video{
-  width:100%;flex:1;object-fit:contain;
-  background:#000;
+  flex:1;width:100%;min-height:0;
+  object-fit:contain;background:#000;
 }
 .screen-spotlight-bar{
-  flex-shrink:0;height:36px;
+  flex-shrink:0;height:40px;
   display:flex;align-items:center;justify-content:center;gap:8px;
-  background:rgba(0,0,0,.7);
-  font-size:.78rem;color:var(--amber);font-weight:600;
+  background:rgba(10,186,181,.12);border-top:1px solid rgba(10,186,181,.2);
+  font-size:.8rem;color:var(--cyan3);font-weight:600;
 }
-.video-grid-wrap{position:relative;}
+/* When spotlight is visible, hide the video grid tiles */
+.video-grid-wrap.screen-active .video-grid{display:none;}
+.video-grid-wrap.screen-active{padding:0;}
 
 /* Poll overlay */
 .poll-overlay{
@@ -1588,23 +1590,37 @@ async function renegotiate(pc, peerId){
   }
 }
 
-// Show the screen spotlight (works for both instructor and students)
+// Show the screen spotlight — hides tile grid, shows full-area screen video
 function showSpotlight(stream, label){
   const el=$('screen-spotlight');
   const vid=$('screen-spotlight-video');
+  const wrap=$('screen-spotlight')?.closest('.video-grid-wrap') ||
+             document.querySelector('.video-grid-wrap');
   const lbl=$('screen-spotlight-label');
   if(!el||!vid) return;
+
+  // Set stream BEFORE making visible (avoids blank-frame flash)
   vid.srcObject=stream;
-  vid.play().catch(()=>{});
+  // autoplay attribute handles play; explicit play() as fallback
+  const playPromise=vid.play();
+  if(playPromise) playPromise.catch(()=>{ vid.muted=true; vid.play().catch(()=>{}); });
+
   if(lbl) lbl.textContent=label||'Screen sharing active';
+  // Swap layout: hide grid, show spotlight as flex child
   el.classList.add('visible');
+  if(wrap) wrap.classList.add('screen-active');
 }
 function hideSpotlight(){
   const el=$('screen-spotlight');
   const vid=$('screen-spotlight-video');
+  const wrap=document.querySelector('.video-grid-wrap');
   if(!el) return;
   el.classList.remove('visible');
-  if(vid){ vid.srcObject=null; }
+  if(wrap) wrap.classList.remove('screen-active');
+  if(vid){
+    vid.pause();
+    vid.srcObject=null;
+  }
 }
 
 function toggleHand(){
