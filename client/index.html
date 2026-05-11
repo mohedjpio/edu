@@ -31,7 +31,7 @@
       <a href="#how"      class="lp-navlink">How it works</a>
       <a href="#pricing"  class="lp-navlink">Pricing</a>
       <a href="#reviews"  class="lp-navlink">Reviews</a>
-      <a href="/edu-meet.html" class="lp-navlink" style="color:var(--cyan3);font-weight:600;display:flex;align-items:center;gap:5px;">🎓 EduMeet</a>
+      <a href="/edumeet-landing.html" class="lp-navlink" style="color:var(--cyan3);font-weight:600;display:flex;align-items:center;gap:5px;">🎓 EduMeet</a>
     </div>
     <div class="lp-nav-actions">
       <button class="theme-toggle" id="theme-toggle" aria-label="Toggle theme">
@@ -134,16 +134,131 @@
     </div>
   </section>
 
-  <!-- ── EDUMEET SERVICE BANNER ── -->
-  <section style="padding:0 24px;max-width:900px;margin:0 auto;margin-bottom:0;">
-    <div style="border:1.5px solid rgba(10,186,181,.3);border-radius:20px;padding:28px 36px;background:linear-gradient(135deg,rgba(10,186,181,.08) 0%,rgba(8,146,208,.06) 100%);display:flex;align-items:center;gap:24px;flex-wrap:wrap;">
-      <div style="font-size:2.4rem;flex-shrink:0;">🎓</div>
-      <div style="flex:1;min-width:200px;">
-        <div style="font-size:1.1rem;font-weight:700;letter-spacing:-.02em;margin-bottom:5px;">EduMeet — Professional Education Meetings</div>
-        <div style="font-size:.84rem;color:var(--tx2);line-height:1.5;">Live classes for up to 500 students · Attendance tracking · Polls · Announcements · Pre-join lobby with camera/mic controls · Fully end-to-end encrypted</div>
+  <!-- ── EDUMEET SERVICE — FULL FEATURE SECTION ── -->
+  <section id="edumeet" style="padding:72px 24px;max-width:1100px;margin:0 auto;">
+
+    <!-- Header -->
+    <div style="text-align:center;margin-bottom:52px;">
+      <div style="display:inline-flex;align-items:center;gap:8px;padding:6px 16px;border-radius:20px;background:rgba(10,186,181,.1);border:1px solid rgba(10,186,181,.25);margin-bottom:16px;">
+        <span style="font-size:.78rem;font-weight:700;color:var(--cyan3);letter-spacing:.06em;text-transform:uppercase;">Built-in Service</span>
       </div>
-      <a href="/edu-meet.html" style="padding:12px 24px;border-radius:10px;background:var(--cyan);color:#020d0d;font-weight:700;font-size:.9rem;text-decoration:none;white-space:nowrap;flex-shrink:0;transition:all .15s;" onmouseover="this.style.background='var(--cyan2)'" onmouseout="this.style.background='var(--cyan)'">Start a Class →</a>
+      <h2 style="font-size:2.4rem;font-weight:800;letter-spacing:-.04em;margin-bottom:14px;">
+        🎓 EduMeet
+        <span style="font-size:1rem;font-weight:500;color:var(--tx2);margin-left:8px;letter-spacing:0;">by SmartShare</span>
+      </h2>
+      <p style="font-size:1.05rem;color:var(--tx2);max-width:560px;margin:0 auto;line-height:1.6;">
+        A complete professional education meeting platform — separate from the main app, zero accounts required, built for classrooms of up to 500 students.
+      </p>
+      <a href="/edumeet-landing.html" style="display:inline-flex;align-items:center;gap:8px;margin-top:28px;padding:14px 32px;border-radius:12px;background:var(--cyan);color:#020d0d;font-weight:700;font-size:1rem;text-decoration:none;transition:all .15s;box-shadow:0 0 32px rgba(10,186,181,.3);" onmouseover="this.style.background='#0DD4CE'" onmouseout="this.style.background='var(--cyan)'">
+        Start a Class
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+      </a>
     </div>
+
+    <!-- Feature grid -->
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px;margin-bottom:52px;">
+
+      <div style="padding:24px;border-radius:16px;background:var(--bg2);border:1px solid var(--bdr2);">
+        <div style="font-size:1.6rem;margin-bottom:12px;">🎙</div>
+        <div style="font-weight:700;font-size:.95rem;margin-bottom:8px;">Pre-Join Lobby</div>
+        <div style="font-size:.84rem;color:var(--tx2);line-height:1.55;">Camera and microphone preview before entering. Choose your devices, test your speaker, and see yourself before anyone else does. No surprises.</div>
+      </div>
+
+      <div style="padding:24px;border-radius:16px;background:var(--bg2);border:1px solid var(--bdr2);">
+        <div style="font-size:1.6rem;margin-bottom:12px;">👥</div>
+        <div style="font-weight:700;font-size:.95rem;margin-bottom:8px;">Up to 500 Students</div>
+        <div style="font-size:.84rem;color:var(--tx2);line-height:1.55;">Full mesh WebRTC supports large classes. Students join via a single invite link with no account required — just enter a name and join.</div>
+      </div>
+
+      <div style="padding:24px;border-radius:16px;background:var(--bg2);border:1px solid var(--bdr2);">
+        <div style="font-size:1.6rem;margin-bottom:12px;">📋</div>
+        <div style="font-weight:700;font-size:.95rem;margin-bottom:8px;">Live Attendance Tracking</div>
+        <div style="font-size:.84rem;color:var(--tx2);line-height:1.55;">Every student is recorded the moment they join — name, join time, and left time. Students who leave remain in the record marked absent. Export to CSV anytime.</div>
+      </div>
+
+      <div style="padding:24px;border-radius:16px;background:var(--bg2);border:1px solid var(--bdr2);">
+        <div style="font-size:1.6rem;margin-bottom:12px;">🔇</div>
+        <div style="font-weight:700;font-size:.95rem;margin-bottom:8px;">Instructor Audio Controls</div>
+        <div style="font-size:.84rem;color:var(--tx2);line-height:1.55;">Mute a specific student with one click, or silence the entire class at once. Students are notified when muted and can unmute themselves when allowed. Instructors are never silenced.</div>
+      </div>
+
+      <div style="padding:24px;border-radius:16px;background:var(--bg2);border:1px solid var(--bdr2);">
+        <div style="font-size:1.6rem;margin-bottom:12px;">🖥</div>
+        <div style="font-weight:700;font-size:.95rem;margin-bottom:8px;">Full-Screen Share to All</div>
+        <div style="font-size:.84rem;color:var(--tx2);line-height:1.55;">When the instructor shares their screen, it appears in full-screen spotlight mode for every student instantly. Students cannot stop or dismiss it. Works for monitor, window, or browser tab.</div>
+      </div>
+
+      <div style="padding:24px;border-radius:16px;background:var(--bg2);border:1px solid var(--bdr2);">
+        <div style="font-size:1.6rem;margin-bottom:12px;">✋</div>
+        <div style="font-weight:700;font-size:.95rem;margin-bottom:8px;">Raise Hand System</div>
+        <div style="font-size:.84rem;color:var(--tx2);line-height:1.55;">Students raise their hand with one click. The instructor sees a live raised-hands list with names, gets an instant toast notification, and can address students in order.</div>
+      </div>
+
+      <div style="padding:24px;border-radius:16px;background:var(--bg2);border:1px solid var(--bdr2);">
+        <div style="font-size:1.6rem;margin-bottom:12px;">💬</div>
+        <div style="font-weight:700;font-size:.95rem;margin-bottom:8px;">Group Class Chat</div>
+        <div style="font-size:.84rem;color:var(--tx2);line-height:1.55;">Real-time group chat for all participants. Messages are delivered over WebRTC DataChannels with a built-in queue — messages sent before connection opens are never lost.</div>
+      </div>
+
+      <div style="padding:24px;border-radius:16px;background:var(--bg2);border:1px solid var(--bdr2);">
+        <div style="font-size:1.6rem;margin-bottom:12px;">📊</div>
+        <div style="font-weight:700;font-size:.95rem;margin-bottom:8px;">Live Polls & Announcements</div>
+        <div style="font-size:.84rem;color:var(--tx2);line-height:1.55;">Instructors broadcast announcements to all students instantly, or launch a live poll with custom options. Results appear in real-time with a percentage bar chart.</div>
+      </div>
+
+      <div style="padding:24px;border-radius:16px;background:var(--bg2);border:1px solid var(--bdr2);">
+        <div style="font-size:1.6rem;margin-bottom:12px;">🔄</div>
+        <div style="font-weight:700;font-size:.95rem;margin-bottom:8px;">Auto-Rejoin on Refresh</div>
+        <div style="font-size:.84rem;color:var(--tx2);line-height:1.55;">If a student accidentally refreshes or their browser tab reloads, EduMeet automatically detects the previous session and rejoins them to the same class — no re-entering details.</div>
+      </div>
+
+      <div style="padding:24px;border-radius:16px;background:var(--bg2);border:1px solid var(--bdr2);">
+        <div style="font-size:1.6rem;margin-bottom:12px;">🔗</div>
+        <div style="font-weight:700;font-size:.95rem;margin-bottom:8px;">One-Click Invite Links</div>
+        <div style="font-size:.84rem;color:var(--tx2);line-height:1.55;">Share a single URL with students. When they open it, they go straight to a simplified join screen — no role picker, just enter a name and join. Instructors are never confused with students.</div>
+      </div>
+
+      <div style="padding:24px;border-radius:16px;background:var(--bg2);border:1px solid var(--bdr2);">
+        <div style="font-size:1.6rem;margin-bottom:12px;">⏹</div>
+        <div style="font-weight:700;font-size:.95rem;margin-bottom:8px;">Instructor Session Control</div>
+        <div style="font-size:.84rem;color:var(--tx2);line-height:1.55;">Only the instructor can end the entire class. When they do, all students are notified and automatically returned to the landing screen. Students can leave individually at any time.</div>
+      </div>
+
+      <div style="padding:24px;border-radius:16px;background:linear-gradient(135deg,rgba(10,186,181,.1),rgba(8,146,208,.08));border:1.5px solid rgba(10,186,181,.25);">
+        <div style="font-size:1.6rem;margin-bottom:12px;">🔒</div>
+        <div style="font-weight:700;font-size:.95rem;margin-bottom:8px;">End-to-End Encrypted</div>
+        <div style="font-size:.84rem;color:var(--tx2);line-height:1.55;">All video, audio, and chat go directly peer-to-peer over DTLS-SRTP — the server only handles signaling. No recording, no storage, no third party ever touches your class data.</div>
+      </div>
+
+    </div>
+
+    <!-- How it works -->
+    <div style="border:1px solid var(--bdr2);border-radius:20px;padding:36px;background:var(--bg2);">
+      <h3 style="font-size:1.2rem;font-weight:700;letter-spacing:-.02em;margin-bottom:28px;text-align:center;">How it works</h3>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:20px;">
+        <div style="text-align:center;">
+          <div style="width:40px;height:40px;border-radius:50%;background:rgba(10,186,181,.15);border:1.5px solid rgba(10,186,181,.3);display:flex;align-items:center;justify-content:center;margin:0 auto 12px;font-weight:800;color:var(--cyan3);">1</div>
+          <div style="font-weight:600;font-size:.88rem;margin-bottom:6px;">Instructor creates a room</div>
+          <div style="font-size:.78rem;color:var(--tx2);line-height:1.5;">Enters name, selects Instructor role, sets up camera and mic in the lobby, then clicks Join.</div>
+        </div>
+        <div style="text-align:center;">
+          <div style="width:40px;height:40px;border-radius:50%;background:rgba(10,186,181,.15);border:1.5px solid rgba(10,186,181,.3);display:flex;align-items:center;justify-content:center;margin:0 auto 12px;font-weight:800;color:var(--cyan3);">2</div>
+          <div style="font-weight:600;font-size:.88rem;margin-bottom:6px;">Share the invite link</div>
+          <div style="font-size:.78rem;color:var(--tx2);line-height:1.5;">Click 🔗 Invite to copy the link. Send it via any channel. Students open it and enter only their name.</div>
+        </div>
+        <div style="text-align:center;">
+          <div style="width:40px;height:40px;border-radius:50%;background:rgba(10,186,181,.15);border:1.5px solid rgba(10,186,181,.3);display:flex;align-items:center;justify-content:center;margin:0 auto 12px;font-weight:800;color:var(--cyan3);">3</div>
+          <div style="font-weight:600;font-size:.88rem;margin-bottom:6px;">Teach</div>
+          <div style="font-size:.78rem;color:var(--tx2);line-height:1.5;">Share screen, chat, poll students, take attendance, manage audio — all from the Attendance panel.</div>
+        </div>
+        <div style="text-align:center;">
+          <div style="width:40px;height:40px;border-radius:50%;background:rgba(10,186,181,.15);border:1.5px solid rgba(10,186,181,.3);display:flex;align-items:center;justify-content:center;margin:0 auto 12px;font-weight:800;color:var(--cyan3);">4</div>
+          <div style="font-weight:600;font-size:.88rem;margin-bottom:6px;">Export & end</div>
+          <div style="font-size:.78rem;color:var(--tx2);line-height:1.5;">Download the attendance CSV, then click End Class to close the session for all students simultaneously.</div>
+        </div>
+      </div>
+    </div>
+
   </section>
 
   <!-- ── FEATURES ── -->

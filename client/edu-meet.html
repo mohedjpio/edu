@@ -368,6 +368,16 @@ body{
 .student-status.present{color:var(--green);}
 .student-status.absent{color:var(--tx4);}
 .student-status.instructor{color:var(--cyan);}
+.student-mute-btn{
+  flex-shrink:0;width:24px;height:24px;border-radius:6px;
+  border:1px solid var(--bdr2);background:transparent;
+  color:var(--tx2);cursor:pointer;display:none;
+  align-items:center;justify-content:center;transition:all .12s;
+  font-size:.7rem;
+}
+.student-item:hover .student-mute-btn{display:flex;}
+.student-mute-btn:hover{background:rgba(239,68,68,.15);border-color:rgba(239,68,68,.4);color:var(--red);}
+.student-mute-btn.is-muted{display:flex;background:rgba(239,68,68,.12);border-color:rgba(239,68,68,.3);color:var(--red);}
 
 /* Chat panel */
 .chat-msgs{flex:1;overflow-y:auto;padding:10px;display:flex;flex-direction:column;gap:6px;}
@@ -823,6 +833,9 @@ body{
           </div>
           <div class="instr-row" style="margin-top:6px;">
             <button class="instr-btn" id="instr-poll">📊 Poll</button>
+            <button class="instr-btn" id="instr-mute-all">🔇 Mute All</button>
+          </div>
+          <div class="instr-row" style="margin-top:6px;">
             <button class="instr-btn danger" id="instr-end-class">⏹ End Class</button>
           </div>
           <!-- Raised hands list — only visible when students raise hand -->
@@ -1353,6 +1366,7 @@ function initMeetingUI(){
 
   // Instructor tools
   $('instr-take-attend')?.addEventListener('click',markAllPresent);
+  $('instr-mute-all')   ?.addEventListener('click',muteAllStudents);
   $('instr-announce')   ?.addEventListener('click',()=>$('modal-announce').classList.add('visible'));
   $('instr-poll')       ?.addEventListener('click',()=>$('modal-poll').classList.add('visible'));
   $('instr-end-class')  ?.addEventListener('click',endClassForAll);
@@ -1672,6 +1686,34 @@ function addToAttendance(peerId,name,role,present){
   if(!_students.has(peerId))
     _students.set(peerId,{name,role,joinedAt:Date.now(),present:!!present});
 }
+// ── Instructor force-mute: peerId → bool ──────────────────────────────────
+// Tracks which students the instructor has force-muted.
+// This is a server-of-truth on the instructor's side; students enforce locally.
+const _peerForceMuted = {};
+
+function muteStudent(peerId, mute){
+  _peerForceMuted[peerId] = mute;
+  // Send direct command to the specific student
+  dcSend(peerId, {type:'edu-force-mute', mute, by:_myName});
+  renderAttendance();
+  const name=_peerNames[peerId]||'Student';
+  showToast(mute ? `🔇 ${name} muted` : `🔈 ${name} unmuted`);
+}
+
+function muteAllStudents(){
+  let count=0;
+  for(const [pid, s] of _students.entries()){
+    if(s.role==='instructor'||pid===_myPeerId) continue;
+    if(s.present){
+      _peerForceMuted[pid]=true;
+      dcSend(pid, {type:'edu-force-mute', mute:true, by:_myName});
+      count++;
+    }
+  }
+  renderAttendance();
+  showToast(`🔇 All ${count} student${count!==1?'s':''} muted`);
+}
+
 function markAllPresent(){
   _students.forEach(s=>s.present=true);
   renderAttendance();
@@ -1720,7 +1762,20 @@ function renderAttendance(){
       :s.present
       ?`<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--green)" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>`
       :`<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--tx4)" stroke-width="2"><circle cx="12" cy="12" r="9"/></svg>`;
-    item.append(av,info,status);
+    // Instructor gets a per-student mute button (not shown for self or instructor role)
+    if(_myRole==='instructor' && s.role!=='instructor' && s.present){
+      const muteBtn=document.createElement('button');
+      const isMuted=_peerForceMuted[pid];
+      muteBtn.className='student-mute-btn'+(isMuted?' is-muted':'');
+      muteBtn.title=isMuted?'Unmute student':'Mute student';
+      muteBtn.innerHTML=isMuted
+        ?`<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="1" y1="1" x2="23" y2="23"/><path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6"/></svg>`
+        :`<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/></svg>`;
+      muteBtn.addEventListener('click',()=>muteStudent(pid, !isMuted));
+      item.append(av,info,muteBtn,status);
+    } else {
+      item.append(av,info,status);
+    }
     list.appendChild(item);
   });
   $('stat-present').textContent=present;
@@ -1858,6 +1913,8 @@ function endClassForAll(){
 
 function leaveRoom(){
   clearInterval(_timerIv); _timerIv=null;
+  // Clear session storage — intentional leave should not auto-rejoin
+  sessionStorage.removeItem('edumeet_session');
   // Tell server we're leaving
   wsSend({type:'leave'});
   if(_ws){ _ws.onclose=null; _ws.close(); _ws=null; }
@@ -2285,6 +2342,22 @@ function handleData(from, d){
       renderAttendance();
       showToast('✅ Instructor marked attendance');
       break;
+    case 'edu-force-mute':
+      // Instructor commanded this student to mute/unmute
+      if(d.mute){
+        // Force mute: disable mic track and update UI
+        _micOn=false;
+        _localStream?.getAudioTracks().forEach(t=>t.enabled=false);
+        broadcastMeta(); // tell everyone our new mute state
+        $('ctrl-mic').classList.add('off');
+        $('ctrl-mic').querySelector('span').textContent='Unmute';
+        showToast(`🔇 ${d.by||'Instructor'} muted your microphone`);
+      } else {
+        // Instructor un-force-muted — allow student to unmute themselves
+        showToast(`🔈 ${d.by||'Instructor'} allowed you to unmute`);
+        // We do NOT auto-unmute — student must click the button themselves
+      }
+      break;
     case 'edu-poll-start':
       if(d.options?.length>=2){
         _activePoll={question:d.question,options:d.options,results:new Array(d.options.length).fill(0)};
@@ -2347,4 +2420,64 @@ function handleData(from, d){
 let _peerSharing=null;
 
 /* URL params handled in initLanding() */
+
+/* ══════════════════════════════════════════════════════
+   REJOIN ON REFRESH
+   On unload (tab refresh / accidental close): save session to sessionStorage.
+   On next load: detect saved session and skip straight to pre-join lobby.
+   On intentional leave (leaveRoom): sessionStorage is cleared first,
+   so the auto-rejoin does not trigger.
+══════════════════════════════════════════════════════ */
+(function setupRejoin(){
+  // ── Save session on page unload (refresh / accidental close) ──
+  window.addEventListener('beforeunload', ()=>{
+    // Only save if we're actually in a meeting
+    if(!_roomId || !_myName) return;
+    sessionStorage.setItem('edumeet_session', JSON.stringify({
+      roomId   : _roomId,
+      myName   : _myName,
+      myRole   : _myRole,
+      className: _className,
+      savedAt  : Date.now(),
+    }));
+  });
+
+  // ── On page load: check for a saved session ──
+  const raw = sessionStorage.getItem('edumeet_session');
+  if(!raw) return;
+  let saved;
+  try{ saved=JSON.parse(raw); }catch{ sessionStorage.removeItem('edumeet_session'); return; }
+
+  // Discard stale sessions (older than 30 minutes)
+  if(!saved.roomId || !saved.myName || Date.now()-saved.savedAt > 30*60*1000){
+    sessionStorage.removeItem('edumeet_session');
+    return;
+  }
+
+  // Valid session found — restore state and go straight to pre-join
+  _myName    = saved.myName;
+  _myRole    = saved.myRole   || 'student';
+  _roomId    = saved.roomId;
+  _className = saved.className || 'Class';
+  sessionStorage.removeItem('edumeet_session'); // consume it
+
+  // Show a rejoin banner briefly, then go to pre-join
+  showScreen('landing');
+  // Briefly show the invite UI with a rejoin message
+  const defDiv=$('landing-default'), invDiv=$('landing-invite');
+  if(defDiv&&invDiv){
+    defDiv.style.display='none';
+    invDiv.style.display='block';
+    $('invite-room-label').textContent='Room: '+_roomId;
+    const nameInput=$('name-input-invite');
+    if(nameInput){ nameInput.value=_myName; nameInput.disabled=true; }
+    const joinBtn=$('btn-join-invite');
+    if(joinBtn){
+      joinBtn.textContent='Rejoin Class →';
+      // Flash a toast then auto-proceed after 2s
+      showToast('🔄 Reconnecting to class…');
+      setTimeout(()=>goToPreJoin(false), 1800);
+    }
+  }
+})();
 </script>
