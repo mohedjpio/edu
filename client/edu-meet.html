@@ -468,6 +468,40 @@ body{
 .student-item:hover .student-mute-btn{display:flex;}
 .student-mute-btn:hover{background:rgba(239,68,68,.15);border-color:rgba(239,68,68,.4);color:var(--red);}
 .student-mute-btn.is-muted{display:flex;background:rgba(239,68,68,.12);border-color:rgba(239,68,68,.3);color:var(--red);}
+/* Kick button */
+.student-kick-btn{
+  flex-shrink:0;width:24px;height:24px;border-radius:6px;
+  border:1px solid var(--bdr2);background:transparent;
+  color:var(--tx2);cursor:pointer;display:none;
+  align-items:center;justify-content:center;transition:all .12s;
+  font-size:.7rem;
+}
+.student-item:hover .student-kick-btn{display:flex;}
+.student-kick-btn:hover{background:rgba(239,68,68,.2);border-color:rgba(239,68,68,.5);color:var(--red);}
+/* Screen request toast — shows to instructor for approval */
+.screen-request-toast{
+  display:none;position:fixed;top:72px;left:50%;transform:translateX(-50%);
+  background:var(--bg2);border:1.5px solid rgba(10,186,181,.35);border-radius:14px;
+  padding:14px 18px;max-width:340px;width:90%;z-index:800;
+  box-shadow:0 8px 32px rgba(0,0,0,.4);animation:slideDown .3s ease;
+}
+.screen-request-toast.visible{display:block;}
+.screen-req-title{font-size:.82rem;font-weight:700;margin-bottom:6px;}
+.screen-req-sub{font-size:.78rem;color:var(--tx2);margin-bottom:12px;}
+.screen-req-btns{display:flex;gap:8px;}
+.screen-req-approve{
+  flex:1;padding:8px;border-radius:8px;border:none;
+  background:var(--cyan);color:#020d0d;font-size:.8rem;font-weight:700;
+  font-family:var(--font);cursor:pointer;transition:all .14s;
+}
+.screen-req-approve:hover{background:var(--cyan2);}
+.screen-req-deny{
+  flex:1;padding:8px;border-radius:8px;
+  border:1px solid var(--bdr2);background:transparent;
+  color:var(--tx1);font-size:.8rem;font-weight:600;
+  font-family:var(--font);cursor:pointer;transition:all .14s;
+}
+.screen-req-deny:hover{background:var(--hover);}
 
 /* Chat panel */
 .chat-msgs{flex:1;overflow-y:auto;padding:10px;display:flex;flex-direction:column;gap:6px;}
@@ -1027,10 +1061,25 @@ body{
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 11V6a2 2 0 0 0-2-2a2 2 0 0 0-2 2"/><path d="M14 10V4a2 2 0 0 0-2-2a2 2 0 0 0-2 2v2"/><path d="M10 10.5V6a2 2 0 0 0-2-2a2 2 0 0 0-2 2v8"/><path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15"/></svg>
       <span>Hand</span>
     </button>
+    <!-- Screen share request button — students only, shown via updateInstructorUI -->
+    <button class="ctrl-btn" id="ctrl-request-screen" style="display:none" title="Request to share your screen">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/><polyline points="8 10 12 6 16 10"/></svg>
+      <span>Request</span>
+    </button>
     <button class="ctrl-btn-end" id="ctrl-end">
       <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M18.36 6.64A9 9 0 0 1 20.77 15H3.23a9 9 0 0 1 2.41-8.36l-.76-.77A10.43 10.43 0 0 0 2 14a1 1 0 0 0 1 1h18a1 1 0 0 0 1-1 10.43 10.43 0 0 0-2.88-7.13z"/></svg>
       <span>Leave</span>
     </button>
+  </div>
+</div>
+
+<!-- Screen share request toast — shown to instructor for approval -->
+<div class="screen-request-toast" id="screen-request-toast">
+  <div class="screen-req-title">🖥 Screen share request</div>
+  <div class="screen-req-sub" id="screen-req-name">A student wants to share their screen</div>
+  <div class="screen-req-btns">
+    <button class="screen-req-approve" id="screen-req-approve">✓ Allow</button>
+    <button class="screen-req-deny"    id="screen-req-deny">✕ Deny</button>
   </div>
 </div>
 
@@ -1462,6 +1511,16 @@ function initMeetingUI(){
   // Render initial local tile
   patchVideoGrid();
 
+  // Add instructor to their own attendance immediately (before WS responds)
+  // Use 'self' as placeholder peerId — replaced when joined arrives
+  if(!_students.has('self')){
+    addToAttendance('self', _myName, _myRole, true);
+  }
+  renderAttendance();
+
+  // Show instructor controls immediately if role is known
+  updateInstructorUI();
+
   if(_meetListenersAttached) return;
   _meetListenersAttached=true;
 
@@ -1471,6 +1530,9 @@ function initMeetingUI(){
   $('ctrl-screen').addEventListener('click',toggleScreen);
   $('ctrl-hand')  .addEventListener('click',toggleHand);
   $('ctrl-end')   .addEventListener('click',leaveRoom);
+  $('ctrl-request-screen')?.addEventListener('click', requestScreenShare);
+  $('screen-req-approve')  ?.addEventListener('click', approveScreenShare);
+  $('screen-req-deny')     ?.addEventListener('click', denyScreenShare);
 
   // Copy invite
   $('btn-copy-invite').addEventListener('click',()=>{
@@ -1521,18 +1583,19 @@ function initMeetingUI(){
 
 function updateInstructorUI(){
   const isInstr = _myRole==='instructor';
-  // Show instructor control panel
   const ic=$('instr-controls');
   if(ic) ic.style.display = isInstr ? 'block' : 'none';
-  // Hide hand-raise button for instructor — instructor sees hands, doesn't raise them
+  // Instructor: no hand raise; student: no hand raise button removed
   const handBtn=$('ctrl-hand');
   if(handBtn) handBtn.style.display = isInstr ? 'none' : 'flex';
-  // Show CSV export only for instructor
+  // CSV export — instructor only
   const csvBtn=$('btn-export-csv');
   if(csvBtn) csvBtn.style.display = isInstr ? 'inline-flex' : 'none';
-  // Hide screen share button for students — only instructor can share
+  // Screen share — instructor only; students get a "Request" button instead
   const scrBtn=$('ctrl-screen');
   if(scrBtn) scrBtn.style.display = isInstr ? 'flex' : 'none';
+  const reqBtn=$('ctrl-request-screen');
+  if(reqBtn) reqBtn.style.display = isInstr ? 'none' : 'flex';
 }
 
 /* ══════════════════════════════════════════════════════
@@ -1773,7 +1836,9 @@ function showSpotlight(stream, label){
   // is independent from the grid tile's video element (both can play the same tracks)
   const spotStream=new MediaStream(stream.getTracks());
   vid.srcObject=spotStream;
-  vid.muted=true; // always muted to prevent echo; screen audio plays via peer audio track
+  // Mute only for REMOTE screen share (to avoid echo from playing the remote peer's audio twice).
+  // For the instructor's OWN share, keep unmuted so they can hear system audio.
+  vid.muted = !_screenSharing; // _screenSharing=true means this is the local/instructor share
   vid.play().catch(()=>{});
 
   if(lbl) lbl.textContent=label||'Screen sharing active';
@@ -1814,10 +1879,69 @@ function micSVG(muted){
 /* ══════════════════════════════════════════════════════
    ATTENDANCE
 ══════════════════════════════════════════════════════ */
-function addToAttendance(peerId,name,role,present){
-  if(!_students.has(peerId))
-    _students.set(peerId,{name,role,joinedAt:Date.now(),present:!!present});
+function addToAttendance(peerId, name, role, present){
+  if(_students.has(peerId)){
+    // Update existing entry — mark as present again (covers rejoin after refresh)
+    const s = _students.get(peerId);
+    s.present = !!present;
+    s.leftAt  = null;    // clear left time — they're back
+    if(name) s.name = name;
+    if(role) s.role = role;
+  } else {
+    _students.set(peerId, {name, role, joinedAt:Date.now(), present:!!present, leftAt:null});
+  }
 }
+// ── Instructor kick & ban ─────────────────────────────────────────────────
+// _bannedPeers: Set of peerIds kicked by instructor this session.
+// Banned peers receive edu-kicked and cannot rejoin (server enforces nothing here —
+// we prevent rejoin by sending edu-ban-check on every peer_joined, and the
+// banned peer's client calls leaveRoom immediately on receiving edu-kicked).
+const _bannedPeers = new Set();
+
+function kickOrUnban(peerId, name){
+  if(_bannedPeers.has(peerId)){
+    // Full unban — clear from ban set AND remove stale name mapping
+    // so checkBanned name-match does not re-block them
+    _bannedPeers.delete(peerId);
+    // Clear the stale peerId from _peerNames so it won't match by name
+    delete _peerNames[peerId];
+    delete _peerRoles[peerId];
+    // Mark the attendance entry as unbanned
+    const s = _students.get(peerId);
+    if(s) s.kicked = false;
+    renderAttendance();
+    showToast(`✅ ${name||'Student'} unbanned — they can now rejoin`);
+  } else {
+    // Kick and ban
+    if(!confirm(`Remove ${name||'this student'} from the class? They won't be able to rejoin unless you unban them.`)) return;
+    _bannedPeers.add(peerId);
+    // Tell the student they're kicked
+    dcSend(peerId, {type:'edu-kicked', by:_myName});
+    // Disconnect after short delay so the message reaches them
+    setTimeout(()=>{
+      cleanupPeer(peerId);
+      const s=_students.get(peerId);
+      if(s){ s.present=false; s.leftAt=Date.now(); s.kicked=true; }
+      renderAttendance();
+      patchVideoGrid();
+      showToast(`🚫 ${name||'Student'} removed`);
+    }, 600);
+  }
+}
+
+// When a new peer joins, check if they're banned (matched by name since peerId changes on refresh)
+function checkBanned(peerId, name){
+  // Direct peerId match
+  if(_bannedPeers.has(peerId)) return true;
+  // Name match — only against peerIds that are STILL in the ban set
+  // (after unban, their peerId is removed from _bannedPeers so this won't fire)
+  for(const bannedId of _bannedPeers){
+    const bannedName = _peerNames[bannedId];
+    if(bannedName && bannedName === name) return true;
+  }
+  return false;
+}
+
 // ── Instructor force-mute: peerId → bool ──────────────────────────────────
 // Tracks which students the instructor has force-muted.
 // This is a server-of-truth on the instructor's side; students enforce locally.
@@ -1895,7 +2019,8 @@ function renderAttendance(){
       ?`<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--green)" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>`
       :`<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--tx4)" stroke-width="2"><circle cx="12" cy="12" r="9"/></svg>`;
     // Instructor gets a per-student mute button (not shown for self or instructor role)
-    if(_myRole==='instructor' && s.role!=='instructor' && s.present){
+    if(_myRole==='instructor' && s.role!=='instructor'){
+      // Mute button (only when present)
       const muteBtn=document.createElement('button');
       const isMuted=_peerForceMuted[pid];
       muteBtn.className='student-mute-btn'+(isMuted?' is-muted':'');
@@ -1903,8 +2028,18 @@ function renderAttendance(){
       muteBtn.innerHTML=isMuted
         ?`<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="1" y1="1" x2="23" y2="23"/><path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6"/></svg>`
         :`<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/></svg>`;
-      muteBtn.addEventListener('click',()=>muteStudent(pid, !isMuted));
-      item.append(av,info,muteBtn,status);
+      if(s.present) muteBtn.addEventListener('click',()=>muteStudent(pid, !isMuted));
+      else muteBtn.style.opacity='.3';
+
+      // Kick button
+      const kickBtn=document.createElement('button');
+      kickBtn.className='student-kick-btn';
+      kickBtn.title=_bannedPeers.has(pid)?'Unban student':'Remove student';
+      kickBtn.innerHTML=_bannedPeers.has(pid)
+        ?`<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>`
+        :`<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="17" y1="8" x2="23" y2="14"/><line x1="23" y1="8" x2="17" y2="14"/></svg>`;
+      kickBtn.addEventListener('click',()=>kickOrUnban(pid, s.name));
+      item.append(av,info,muteBtn,kickBtn,status);
     } else {
       item.append(av,info,status);
     }
@@ -2135,18 +2270,142 @@ function leaveRoom(){
   }
   _localStream?.getTracks().forEach(t=>t.stop()); _localStream=null;
   _screenStream?.getTracks().forEach(t=>t.stop()); _screenStream=null;
-  // Reset state
-  Object.keys(_peerNames).forEach(k=>delete _peerNames[k]);
-  Object.keys(_peerRoles).forEach(k=>delete _peerRoles[k]);
-  Object.keys(_peerMuted).forEach(k=>delete _peerMuted[k]);
+  // ── Full state reset — must be exhaustive to prevent bleed into next session ──
+  Object.keys(_peerNames) .forEach(k=>delete _peerNames[k]);
+  Object.keys(_peerRoles) .forEach(k=>delete _peerRoles[k]);
+  Object.keys(_peerMuted) .forEach(k=>delete _peerMuted[k]);
   Object.keys(_peerCamOff).forEach(k=>delete _peerCamOff[k]);
-  Object.keys(_peerHands).forEach(k=>delete _peerHands[k]);
-  _students.clear(); _chatHistory.length=0;
-  _screenSharing=false; _handUp=false;
+  Object.keys(_peerHands) .forEach(k=>delete _peerHands[k]);
+  Object.keys(_peerDCs)   .forEach(k=>delete _peerDCs[k]);
+  Object.keys(_dcQueues)  .forEach(k=>delete _dcQueues[k]);
+  Object.keys(_audioEls)  .forEach(k=>{ removeRemoteAudio(k); });
+  _students.clear();
+  _chatHistory.length=0;
+  _bannedPeers.clear();          // clear ban list on intentional leave
+  _pendingScreenRequester=null;
+  _screenSharing=false;
+  _handUp=false;
   _micOn=true; _camOn=true;
-  _meetListenersAttached=false; // allow re-init if user re-joins
+  _screenSenderId=null;
+  _savedCamTrack=null;
+  _myPeerId=null;
+  _roomId=null;
+  _unreadChat=0;
+  _meetListenersAttached=false;
   showScreen('landing');
   showToast('👋 You left the class');
+}
+
+/* ══════════════════════════════════════════════════════
+   STUDENT SCREEN SHARE REQUEST SYSTEM
+   Student clicks Request → sends edu-screen-request to instructor.
+   Instructor sees toast → Approve sends edu-screen-approved back.
+   Student receives approved → starts getDisplayMedia + shares.
+   Instructor sees the student's screen in spotlight.
+══════════════════════════════════════════════════════ */
+let _pendingScreenRequester = null; // peerId of student waiting for approval
+
+async function requestScreenShare(){
+  // Find instructor — check _students first, then _peerRoles as fallback
+  let instrEntry = [..._students.entries()].find(([pid,s])=>
+    s.role==='instructor' && pid!==_myPeerId && pid!=='self');
+  if(!instrEntry){
+    // Fallback: check _peerRoles (populated from server before DC opens)
+    const instrId = Object.entries(_peerRoles).find(([,r])=>r==='instructor')?.[0];
+    if(instrId) instrEntry=[instrId, _students.get(instrId)||{role:'instructor'}];
+  }
+  if(!instrEntry){
+    showToast('No instructor in the room yet');
+    return;
+  }
+  const instrId=instrEntry[0];
+  broadcastData({type:'edu-screen-request', name:_myName, from:_myPeerId});
+  showToast('📤 Screen share request sent to instructor…');
+  $('ctrl-request-screen').disabled=true;
+  $('ctrl-request-screen').querySelector('span').textContent='Waiting…';
+  setTimeout(()=>{
+    $('ctrl-request-screen').disabled=false;
+    $('ctrl-request-screen').querySelector('span').textContent='Request';
+  }, 30000); // re-enable after 30s if no response
+}
+
+function approveScreenShare(){
+  hideScreenRequestToast();
+  if(!_pendingScreenRequester) return;
+  dcSend(_pendingScreenRequester, {type:'edu-screen-approved', by:_myName});
+  showToast(`✅ Screen share approved for ${_peerNames[_pendingScreenRequester]||'student'}`);
+  _pendingScreenRequester=null;
+}
+
+function denyScreenShare(){
+  hideScreenRequestToast();
+  if(!_pendingScreenRequester) return;
+  dcSend(_pendingScreenRequester, {type:'edu-screen-denied', by:_myName});
+  _pendingScreenRequester=null;
+}
+
+function showScreenRequestToast(name, peerId){
+  _pendingScreenRequester=peerId;
+  $('screen-req-name').textContent=`${name||'A student'} wants to share their screen`;
+  const toast=$('screen-request-toast');
+  toast.classList.add('visible');
+  // Auto-deny after 30 seconds if no action
+  setTimeout(()=>{
+    if(toast.classList.contains('visible')) denyScreenShare();
+  }, 30000);
+}
+
+function hideScreenRequestToast(){
+  $('screen-request-toast')?.classList.remove('visible');
+}
+
+async function startStudentScreenShare(){
+  // Called after instructor approves
+  let stream;
+  try{
+    stream=await navigator.mediaDevices.getDisplayMedia({
+      video:{frameRate:{ideal:30}}, audio:false
+    });
+  }catch(e){
+    showToast('Screen share cancelled');
+    $('ctrl-request-screen').disabled=false;
+    $('ctrl-request-screen').querySelector('span').textContent='Request';
+    return;
+  }
+
+  const scrTrack=stream.getVideoTracks()[0];
+
+  // Show in student's own spotlight
+  showSpotlight(stream, 'You are sharing your screen');
+  $('ctrl-request-screen').querySelector('span').textContent='Stop Share';
+  $('ctrl-request-screen').classList.add('off');
+  $('screenshare-banner').classList.add('visible');
+
+  // Replace video track to all connected peers
+  for(const [pid, pc] of Object.entries(_peerConns)){
+    const sender=pc.getSenders().find(s=>s.track?.kind==='video');
+    if(sender) await sender.replaceTrack(scrTrack).catch(()=>{});
+    else { pc.addTrack(scrTrack, stream); }
+  }
+
+  // Tell everyone screen share started
+  broadcastData({type:'edu-screen-start', sharer:_myName});
+
+  scrTrack.addEventListener('ended', ()=>{
+    stream.getTracks().forEach(t=>t.stop());
+    hideSpotlight();
+    $('screenshare-banner').classList.remove('visible');
+    $('ctrl-request-screen').querySelector('span').textContent='Request';
+    $('ctrl-request-screen').classList.remove('off');
+    $('ctrl-request-screen').disabled=false;
+    broadcastData({type:'edu-screen-stop'});
+    // Restore camera track
+    const camTrack=_localStream?.getVideoTracks()[0];
+    for(const pc of Object.values(_peerConns)){
+      const sender=pc.getSenders().find(s=>s.track?.kind==='video');
+      if(sender&&camTrack) sender.replaceTrack(camTrack).catch(()=>{});
+    }
+  });
 }
 
 /* ══════════════════════════════════════════════════════
@@ -2166,7 +2425,7 @@ function connectSignaling(){
 
   _ws.onopen=()=>{
     console.log('[edumeet] ws open — joining room',_roomId);
-    wsSend({type:'join',roomId:_roomId,name:_myName,mode:'group'});
+    wsSend({type:'join',roomId:_roomId,name:_myName,mode:'group',role:_myRole});
   };
 
   _ws.onmessage=e=>{
@@ -2208,24 +2467,49 @@ async function handleSignal(msg){
       _myPeerId  = msg.peerId;
       _iceServers= msg.iceServers?.length ? msg.iceServers : DEFAULT_ICE;
       console.log('[edumeet] joined as',_myPeerId,'room',msg.roomId,'mode',msg.mode);
-      // Offer to all existing peers (we are the newcomer)
+      // Replace the placeholder 'self' entry with the real peerId
+      if(_students.has('self')){
+        const s=_students.get('self');
+        _students.delete('self');
+        _students.set(_myPeerId, s);
+      } else {
+        addToAttendance(_myPeerId,_myName,_myRole,true);
+      }
+      // Offer to all existing peers — server now sends name AND role
       for(const p of (msg.peers||[])){
-        _peerNames[p.id]=p.name||'Peer';
+        _peerNames[p.id] = p.name || 'Peer';
+        _peerRoles[p.id] = p.role || 'student';
+        // Pre-populate attendance with correct role before DC meta arrives
+        addToAttendance(p.id, _peerNames[p.id], _peerRoles[p.id], true);
         await createOffer(p.id);
       }
-      addToAttendance(_myPeerId,_myName,_myRole,true);
       renderAttendance();
       updateInstructorUI();
       break;
     }
     case 'peer_joined':{
-      const pid=msg.peerId;
-      _peerNames[pid]=msg.name||'Peer';
-      // They will send us an offer (they arrived after us); we wait
-      addToAttendance(pid,_peerNames[pid],'student',true);
+      const pid  = msg.peerId;
+      const name = msg.name || 'Peer';
+      const role = msg.role || 'student';  // server now sends role
+      _peerNames[pid] = name;
+      _peerRoles[pid] = role;
+
+      // Check if this person was previously kicked (match by name)
+      if(_myRole==='instructor' && checkBanned(pid, name)){
+        _bannedPeers.add(pid);
+        setTimeout(()=>{
+          dcSend(pid,{type:'edu-kicked',by:_myName});
+          cleanupPeer(pid);
+          showToast(`🚫 Blocked ${name} from rejoining`);
+        }, 1000);
+        return;
+      }
+
+      // Add with correct role immediately — no waiting for DC meta
+      addToAttendance(pid, name, role, true);
       renderAttendance();
       patchVideoGrid();
-      showToast(`✅ ${_peerNames[pid]} joined`);
+      showToast(`✅ ${name} joined`);
       break;
     }
     case 'peer_left':{
@@ -2519,7 +2803,8 @@ function broadcastData(data){
 }
 
 function broadcastMeta(){
-  broadcastData({type:'edu-meta',name:_myName,role:_myRole,micOn:_micOn,camOn:_camOn,handUp:_handUp});
+  // Always include role — the primary sync mechanism for role on the DC layer
+  broadcastData({type:'edu-meta',name:_myName,role:_myRole,micOn:_micOn,camOn:_camOn,handUp:_handUp,peerId:_myPeerId});
 }
 
 function handleData(from, d){
@@ -2532,7 +2817,18 @@ function handleData(from, d){
       _peerCamOff[from] = !d.camOn;
       const prevHand=_peerHands[from];
       _peerHands[from]  = !!d.handUp;
-      { const stu=_students.get(from); if(stu&&d.name) stu.name=d.name; }
+      {
+        const stu=_students.get(from);
+        if(stu){
+          if(d.name) stu.name=d.name;
+          // Correct role if server sent wrong one (name-based correction)
+          if(d.role) stu.role=d.role;
+          stu.present=true; // DC open = they are definitely present
+        } else {
+          // DC arrived before peer_joined was processed — add now
+          addToAttendance(from, d.name||_peerNames[from]||'Peer', d.role||'student', true);
+        }
+      }
       patchVideoGrid();
       renderAttendance();
       if(_myRole==='instructor'&&!prevHand&&_peerHands[from]){
@@ -2549,6 +2845,30 @@ function handleData(from, d){
       _students.forEach(s=>s.present=true);
       renderAttendance();
       showToast('✅ Instructor marked attendance');
+      break;
+    case 'edu-kicked':
+      // Student was kicked by instructor — leave immediately and block rejoin
+      sessionStorage.removeItem('edumeet_session'); // prevent auto-rejoin
+      sessionStorage.setItem('edumeet_kicked','1'); // flag for landing page
+      showToast(`🚫 You were removed by ${d.by||'the instructor'}`);
+      setTimeout(()=>leaveRoom(), 1500);
+      break;
+    case 'edu-screen-request':
+      // Instructor receives screen share request from student
+      if(_myRole==='instructor'){
+        showScreenRequestToast(d.name, from);
+      }
+      break;
+    case 'edu-screen-approved':
+      // Student receives approval — start sharing
+      showToast('✅ Screen share approved!');
+      $('ctrl-request-screen').disabled=false;
+      startStudentScreenShare();
+      break;
+    case 'edu-screen-denied':
+      showToast('❌ Screen share request was declined');
+      $('ctrl-request-screen').disabled=false;
+      $('ctrl-request-screen').querySelector('span').textContent='Request';
       break;
     case 'edu-force-mute':
       // Instructor commanded this student to mute/unmute
@@ -2637,6 +2957,13 @@ let _peerSharing=null;
    so the auto-rejoin does not trigger.
 ══════════════════════════════════════════════════════ */
 (function setupRejoin(){
+  // If this student was kicked, show a message on the landing screen
+  if(sessionStorage.getItem('edumeet_kicked')){
+    sessionStorage.removeItem('edumeet_kicked');
+    // Show a brief notice — we'll add a toast after screens are initialized
+    setTimeout(()=>showToast('🚫 You were removed from the class by the instructor'), 500);
+  }
+
   // ── Save session on page unload (refresh / accidental close) ──
   window.addEventListener('beforeunload', ()=>{
     // Only save if we're actually in a meeting

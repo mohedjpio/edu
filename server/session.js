@@ -20,7 +20,7 @@ function createRoom(roomId, mode) {
 
 function generateRoomId() { return uuidv4(); }
 
-function joinRoom(roomId, ws, name, mode) {
+function joinRoom(roomId, ws, name, mode, role) {
   let room = rooms.get(roomId);
   if (!room) room = createRoom(roomId, mode || 'p2p');
 
@@ -28,7 +28,13 @@ function joinRoom(roomId, ws, name, mode) {
   if (room.peers.size >= max) return { peerId:null, error:'room_full' };
 
   const peerId = uuidv4();
-  room.peers.set(peerId, { id:peerId, ws, name: name || `User ${room.peers.size+1}`, joinedAt:now() });
+  room.peers.set(peerId, {
+    id:       peerId,
+    ws,
+    name:     name || `User ${room.peers.size+1}`,
+    role:     role || 'student',   // store role so it can be relayed
+    joinedAt: now(),
+  });
   peerRoom.set(peerId, roomId);
   touch(room);
   return { peerId, error:null };

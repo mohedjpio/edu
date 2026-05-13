@@ -13,7 +13,8 @@ function broadcast(peers, payload, excludeId) {
 
 function handleJoin(ws, msg, state) {
   const roomId = msg.roomId || session.generateRoomId();
-  const { peerId, error } = session.joinRoom(roomId, ws, msg.name, msg.mode);
+  // Pass role to session so it can be relayed to other peers
+  const { peerId, error } = session.joinRoom(roomId, ws, msg.name, msg.mode, msg.role);
 
   if (error) {
     const room = session.getRoom(roomId);
@@ -27,18 +28,27 @@ function handleJoin(ws, msg, state) {
 
   const room   = session.getRoom(roomId);
   const others = session.getRoomPeers(peerId);
+  const self   = room.peers.get(peerId);
 
   send(ws, {
     type:       'joined',
     roomId,
     peerId,
     mode:       room.mode,
-    iceServers: ICE_SERVERS,   // send TURN credentials to client
-    peers:      others.map(p => ({ id: p.id, name: p.name })),
+    iceServers: ICE_SERVERS,
+    // Include name AND role for every existing peer so newcomer can populate correctly
+    peers:      others.map(p => ({ id: p.id, name: p.name, role: p.role || 'student' })),
   });
 
-  broadcast(others, { type: 'peer_joined', peerId, name: room.peers.get(peerId)?.name }, null);
-  console.log(`[signal] ${peerId.slice(0,8)} joined ${room.mode} room ${roomId.slice(0,8)} (${others.length + 1} peers)`);
+  // Broadcast to existing peers: include the newcomer's role
+  broadcast(others, {
+    type:   'peer_joined',
+    peerId,
+    name:   self?.name,
+    role:   self?.role || 'student',
+  }, null);
+
+  console.log(`[signal] ${peerId.slice(0,8)} (${self?.role||'student'}) joined ${room.mode} room ${roomId.slice(0,8)} (${others.length + 1} peers)`);
 }
 
 // Generic relay — offer/answer/ice-candidate/call-signal all use the same path
