@@ -1797,8 +1797,10 @@ async function toggleScreen(){
         });
       } else {
         // No video sender yet (instructor had camera off from the start)
-        // Add the screen track and let onnegotiationneeded handle renegotiation
-        pc.addTrack(scrTrack, stream);
+        // Use the named stream so ontrack can identify it as screen share
+        const namedStream = new MediaStream([scrTrack]);
+        Object.defineProperty(namedStream, 'id', {value:'edumeet-screen'});
+        pc.addTrack(scrTrack, namedStream);
         // Manually trigger renegotiation since onnegotiationneeded may not fire
         _triggerRenegotiation(pc, pid);
       }
@@ -2643,11 +2645,17 @@ function createPC(peerId, isOfferer){
   }
 
   // ── Active screen share — add to new PC so late joiner gets it ──────────
+  // We use a MediaStream with a fixed well-known id='edumeet-screen'.
+  // This id is transmitted in the SDP (a:msid line), so the receiver's
+  // ontrack handler can detect the screen track reliably via e.streams[0].id,
+  // without relying on contentHint (which is not transmitted over the wire)
+  // or track labels (which vary per browser/OS).
   if(_activeScreenTrack && _activeScreenTrack.readyState==='live'){
     if(!pc.getSenders().find(s=>s.track?.id===_activeScreenTrack.id)){
-      try{ _activeScreenTrack.contentHint='detail'; }catch{}
-      pc.addTrack(_activeScreenTrack,
-        _activeScreenStream||new MediaStream([_activeScreenTrack]));
+      // Named stream — id 'edumeet-screen' is the detection signal
+      const namedStream = new MediaStream([_activeScreenTrack]);
+      Object.defineProperty(namedStream, 'id', {value:'edumeet-screen'});
+      pc.addTrack(_activeScreenTrack, namedStream);
       console.log('[ScreenShare] Attaching active screen track to new peer:', peerId.slice(0,8));
     }
   }
@@ -2682,14 +2690,24 @@ function createPC(peerId, isOfferer){
     const hint  = track.contentHint||'';
     const lbl   = (track.label||'').toLowerCase();
 
-    const byHint   = hint==='detail';
+    // byStream: sharer tags screen track stream with id='edumeet-screen' in SDP.
+    // This is the MOST reliable signal — transmitted in the SDP a:msid line,
+    // works on all browsers, not affected by OS/browser label differences.
+    const byStream = e.streams.some(s=>s.id==='edumeet-screen');
+    // byDC: DC message set _peerSharing before this ontrack fired
     const byDC     = _peerSharing===peerId;
+    // byLabel: getDisplayMedia tracks have recognisable labels on most platforms
     const byLabel  = lbl.includes('screen')||lbl.includes('window')||
                      lbl.includes('display')||lbl.includes('monitor')||
                      lbl.includes('web-contents')||lbl.includes('tab');
+    // byHint: only reliable locally (NOT transmitted over wire — kept as last resort)
+    const byHint   = hint==='detail';
+    // bySecond: peer already has a camera track — this second video is the screen
     const bySecond = (_peerStreams[peerId]?.getVideoTracks().length||0)>=1;
 
-    const isScreen = byHint||byDC||byLabel||bySecond;
+    const isScreen = byStream||byDC||byLabel||byHint||bySecond;
+    if(isScreen) console.log('[ScreenShare] Screen track detected for', peerId.slice(0,8),
+      {byStream,byDC,byLabel,byHint,bySecond});
 
     if(isScreen){
       // Show in spotlight — create an isolated MediaStream so the <video>
@@ -2755,14 +2773,9 @@ function wireDataChannel(dc, peerId){
     });
     if(roster.length) dcSend(peerId,{type:'edu-roster',peers:roster});
 
-    // 3. If we are actively sharing a screen, notify the peer immediately
-    //    so _peerSharing is set before their ontrack fires
-    if(_activeScreenTrack && _activeScreenTrack.readyState==='live'){
-      dcSend(peerId,{type:'edu-screen-start',
-        sharer:_myName, sharerPeerId:_myPeerId});
-    }
-
-    // 3. Notify of active screen share so _peerSharing is set before their ontrack fires
+    // 3. If we are actively sharing a screen, notify the late joiner immediately.
+    //    This sets _peerSharing on their side before ontrack fires, enabling
+    //    reliable screen track detection via the byDC signal.
     if(_activeScreenTrack && _activeScreenTrack.readyState==='live'){
       console.log('[ScreenShare] Notifying late joiner of active share:', peerId.slice(0,8));
       dcSend(peerId,{type:'edu-screen-start',
