@@ -2434,148 +2434,144 @@ async function startStudentScreenShare(){
    Received from server: joined / peer_joined / peer_left / offer / answer / ice-candidate / error
    NOTE: 'data' is NOT a server relay type — all app data goes over WebRTC DataChannels
 ══════════════════════════════════════════════════════ */
+/* ══════════════════════════════════════════════════════════════════════════
+   WEBRTC ENGINE — production-grade mesh, Google-Meet-style behaviour
+   ─────────────────────────────────────────────────────────────────────────
+   Architecture:
+   • Full mesh: every peer connects directly to every other peer.
+   • Offerer = newcomer (the peer who received the peer list in 'joined').
+   • Answerer = existing peer (receives an offer, reuses its PC).
+   • Screen share: addTrack on existing PCs + renegotiate.
+     – The screen track is tagged with _screenSenderId.
+     – ontrack identifies it via a content-hint flag we set before addTrack.
+     – Late joiners get it in their initial offer (createPC adds it).
+   • Roster sync: every DC.onopen sends a full peer snapshot so any peer
+     that missed earlier peer_joined signals catches up instantly.
+   • handleOffer NEVER recreates a PC if one already exists — it reuses it.
+══════════════════════════════════════════════════════════════════════════ */
+
+/* ── Screen share global state ── */
+let _activeScreenTrack  = null;   // live getDisplayMedia video track
+let _activeScreenStream = null;   // full getDisplayMedia stream
+let _activeScreenSharer = null;   // 'local' when we are sharing
+let _peerSharing        = null;   // peerId of the remote peer sharing
+
+/* ── Signaling connection ── */
 function connectSignaling(){
   const wsUrl=`${location.protocol==='https:'?'wss':'ws'}://${location.host}/signal`;
-  try{
-    _ws=new WebSocket(wsUrl);
-  }catch(e){
-    console.warn('[edumeet] WebSocket constructor threw — demo mode');
-    enterDemoMode(); return;
-  }
+  try{ _ws=new WebSocket(wsUrl); }
+  catch(e){ console.warn('[edumeet] WebSocket failed — demo mode'); enterDemoMode(); return; }
 
   _ws.onopen=()=>{
-    console.log('[edumeet] ws open — joining room',_roomId);
+    console.log('[edumeet] ws open — joining',_roomId);
     wsSend({type:'join',roomId:_roomId,name:_myName,mode:'group',role:_myRole});
   };
-
   _ws.onmessage=e=>{
     let msg; try{ msg=JSON.parse(e.data); }catch{ return; }
     handleSignal(msg);
   };
-
-  _ws.onerror=e=>{
-    console.warn('[edumeet] ws error',e);
-    // onerror always precedes onclose, so we just log here
-  };
-
+  _ws.onerror=e=>console.warn('[edumeet] ws error',e);
   _ws.onclose=ev=>{
     console.log('[edumeet] ws closed',ev.code,ev.reason);
-    if(ev.code===1006){
-      // Abnormal close — server unreachable
-      enterDemoMode();
-    }
+    if(ev.code===1006) enterDemoMode();
   };
 }
 
 function enterDemoMode(){
   if(!_myPeerId) _myPeerId='local-'+uid();
-  // Replace self placeholder with real (demo) peerId
   if(_students.has('self')){
-    const s=_students.get('self');
-    _students.delete('self');
+    const s=_students.get('self'); _students.delete('self');
     _students.set(_myPeerId, s);
-  } else {
-    addToAttendance(_myPeerId,_myName,_myRole,true);
-  }
-  updateInstructorUI();
-  renderAttendance();
-  patchVideoGrid();
-  showToast('📡 No server — running locally. Share the link to invite others once deployed.');
+  } else { addToAttendance(_myPeerId,_myName,_myRole,true); }
+  updateInstructorUI(); renderAttendance(); patchVideoGrid();
+  showToast('📡 Demo mode — share the link once deployed');
 }
 
 function wsSend(obj){
   if(_ws?.readyState===WebSocket.OPEN) _ws.send(JSON.stringify(obj));
 }
 
-/* ══════════════════════════════════════════════════════
-   SIGNAL HANDLER
-══════════════════════════════════════════════════════ */
+/* ── Signal handler ── */
 async function handleSignal(msg){
   switch(msg.type){
+
     case 'joined':{
       _myPeerId  = msg.peerId;
       _iceServers= msg.iceServers?.length ? msg.iceServers : DEFAULT_ICE;
-      console.log('[edumeet] joined as',_myPeerId,'room',msg.roomId,'mode',msg.mode);
-      // Replace the placeholder 'self' entry with the real peerId
+      console.log('[edumeet] joined as',_myPeerId,'room',msg.roomId);
+
+      // Replace self-placeholder with real peerId
       if(_students.has('self')){
-        const s=_students.get('self');
-        _students.delete('self');
-        _students.set(_myPeerId, s);
-      } else {
-        addToAttendance(_myPeerId,_myName,_myRole,true);
-      }
-      // Offer to all existing peers — server now sends name AND role
+        const s=_students.get('self'); _students.delete('self');
+        _students.set(_myPeerId,s);
+      } else { addToAttendance(_myPeerId,_myName,_myRole,true); }
+
+      // Pre-populate all existing peers from server list (with role)
       for(const p of (msg.peers||[])){
-        _peerNames[p.id] = p.name || 'Peer';
-        _peerRoles[p.id] = p.role || 'student';
-        // Pre-populate attendance with correct role before DC meta arrives
-        addToAttendance(p.id, _peerNames[p.id], _peerRoles[p.id], true);
-        await createOffer(p.id);
+        _peerNames[p.id]=p.name||'Peer';
+        _peerRoles[p.id]=p.role||'student';
+        addToAttendance(p.id,_peerNames[p.id],_peerRoles[p.id],true);
       }
-      renderAttendance();
-      updateInstructorUI();
+      renderAttendance(); updateInstructorUI();
+
+      // As the newcomer, we create offers to ALL existing peers in parallel.
+      // Parallel (not sequential) — no await inside the loop.
+      const offerJobs=(msg.peers||[]).map(p=>createOffer(p.id));
+      await Promise.all(offerJobs);
       break;
     }
-    case 'peer_joined':{
-      const pid  = msg.peerId;
-      const name = msg.name || 'Peer';
-      const role = msg.role || 'student';  // server now sends role
-      _peerNames[pid] = name;
-      _peerRoles[pid] = role;
 
-      // Check if this person was previously kicked (match by name)
-      if(_myRole==='instructor' && checkBanned(pid, name)){
+    case 'peer_joined':{
+      const pid=msg.peerId, name=msg.name||'Peer', role=msg.role||'student';
+      _peerNames[pid]=name; _peerRoles[pid]=role;
+
+      // Ban check for instructor
+      if(_myRole==='instructor' && checkBanned(pid,name)){
         _bannedPeers.add(pid);
-        setTimeout(()=>{
-          dcSend(pid,{type:'edu-kicked',by:_myName});
-          cleanupPeer(pid);
-          showToast(`🚫 Blocked ${name} from rejoining`);
-        }, 1000);
+        setTimeout(()=>{ dcSend(pid,{type:'edu-kicked',by:_myName}); cleanupPeer(pid); },1000);
         return;
       }
 
-      // Add with correct role immediately — no waiting for DC meta
-      addToAttendance(pid, name, role, true);
-      renderAttendance();
-      patchVideoGrid();
+      addToAttendance(pid,name,role,true);
+      renderAttendance(); patchVideoGrid();
       showToast(`✅ ${name} joined`);
+      // The newcomer sends US an offer — we wait for it (don't create one here)
       break;
     }
+
     case 'peer_left':{
       const pid=msg.peerId;
       const who=_peerNames[pid]||'Someone';
-      // Mark left time BEFORE cleanup
       const s=_students.get(pid);
       if(s){ s.present=false; s.leftAt=Date.now(); }
       cleanupPeer(pid);
-      // Keep name in _peerNames for attendance display label
-      // but remove live state
-      delete _peerMuted[pid];
-      delete _peerCamOff[pid];
-      delete _peerHands[pid];
-      // Remove PC entry so patchVideoGrid doesn't show a ghost tile
-      delete _peerConns[pid];
-      delete _peerStreams[pid];
-      renderAttendance();
-      patchVideoGrid();
-      showToast(`👋 ${who} left the class`);
+      delete _peerConns[pid]; delete _peerStreams[pid];
+      delete _peerMuted[pid]; delete _peerCamOff[pid]; delete _peerHands[pid];
+      renderAttendance(); patchVideoGrid();
+      showToast(`👋 ${who} left`);
       break;
     }
+
     case 'offer':
       await handleOffer(msg);
       break;
+
     case 'answer':
       if(_peerConns[msg.from]){
-        try{ await _peerConns[msg.from].setRemoteDescription(new RTCSessionDescription(msg.sdp)); }
-        catch(e){ console.error('[edumeet] setRemoteDescription answer failed',e); }
+        try{ await _peerConns[msg.from].setRemoteDescription(
+          new RTCSessionDescription(msg.sdp)); }
+        catch(e){ console.error('[edumeet] setRemoteDescription(answer)',e); }
       }
       break;
+
     case 'ice-candidate':
       if(_peerConns[msg.from]&&msg.candidate){
-        try{ await _peerConns[msg.from].addIceCandidate(new RTCIceCandidate(msg.candidate)); }
+        try{ await _peerConns[msg.from].addIceCandidate(
+          new RTCIceCandidate(msg.candidate)); }
         catch(e){ /* benign during renegotiation */ }
       }
       break;
+
     case 'error':
       console.warn('[edumeet] server error',msg.code,msg.message);
       if(msg.code==='room_full') showToast('❌ Room is full (max 500)');
@@ -2583,11 +2579,9 @@ async function handleSignal(msg){
   }
 }
 
-/* ══════════════════════════════════════════════════════
-   WEBRTC — Peer Connection
-══════════════════════════════════════════════════════ */
+/* ── Offer/Answer ── */
 async function createOffer(peerId){
-  const pc=createPC(peerId, true /*isOfferer*/);
+  const pc=createPC(peerId, true);
   try{
     const offer=await pc.createOffer();
     await pc.setLocalDescription(offer);
@@ -2597,103 +2591,109 @@ async function createOffer(peerId){
 
 async function handleOffer(msg){
   const peerId=msg.from;
-  // If a connection already exists for this peer this is a RE-OFFER
-  // (renegotiation — e.g. instructor started screen share).
-  // Reuse the existing PC; do NOT call createPC() which would destroy it.
+  // ── CRITICAL: NEVER recreate a PC that already exists and is working.
+  //    Recreating destroys all existing tracks and DCs.
+  //    Only create a new PC if none exists for this peer.
   let pc=_peerConns[peerId];
-  if(!pc){
-    // First offer from this peer — create a fresh PC as answerer
-    pc=createPC(peerId, false);
-  }
+  if(!pc) pc=createPC(peerId, false);
+
   try{
     await pc.setRemoteDescription(new RTCSessionDescription(msg.sdp));
     const answer=await pc.createAnswer();
     await pc.setLocalDescription(answer);
-    wsSend({type:'answer', to:peerId, sdp:pc.localDescription});
+    wsSend({type:'answer',to:peerId,sdp:pc.localDescription});
   }catch(e){ console.error('[edumeet] handleOffer failed',e); }
 }
 
+/* ── RTCPeerConnection factory ── */
 function createPC(peerId, isOfferer){
-  // Clean up any stale connection for this peer
-  if(_peerConns[peerId]){
-    _peerConns[peerId].onconnectionstatechange=null;
-    _peerConns[peerId].close();
-  }
-
-  const pc=new RTCPeerConnection({
-    iceServers: _iceServers.length ? _iceServers : DEFAULT_ICE,
-    iceTransportPolicy: 'all',
-  });
-  _peerConns[peerId]=pc;
-
-  // Add local cam+mic tracks
-  if(_localStream){
-    _localStream.getTracks().forEach(t=>pc.addTrack(t,_localStream));
-  }
-  // If WE are the screen sharer and a new peer joins — add the screen track
-  // to their PC before the initial offer is created, so they get it from the start.
-  // _activeScreenTrack is set by toggleScreen / startStudentScreenShare.
-  if(_activeScreenTrack && _activeScreenTrack.readyState==='live'){
-    const alreadyAdded=pc.getSenders().find(s=>s.track?.id===_activeScreenTrack.id);
-    if(!alreadyAdded){
-      pc.addTrack(_activeScreenTrack, _activeScreenStream||new MediaStream([_activeScreenTrack]));
+  // Close any truly dead connection (closed/failed state only)
+  const existing=_peerConns[peerId];
+  if(existing){
+    const s=existing.connectionState;
+    if(s==='closed'||s==='failed'){
+      existing.onconnectionstatechange=null; existing.onicecandidate=null;
+      existing.ontrack=null; existing.ondatachannel=null;
+      try{ existing.close(); }catch{}
+    } else {
+      // PC is alive — reuse it; caller should not have called createPC
+      return existing;
     }
   }
 
-  // ICE candidates — server uses type 'ice-candidate'
+  const pc=new RTCPeerConnection({
+    iceServers:    _iceServers.length ? _iceServers : DEFAULT_ICE,
+    iceTransportPolicy: 'all',
+    bundlePolicy:  'max-bundle',   // bundle all tracks on one transport
+    rtcpMuxPolicy: 'require',
+  });
+  _peerConns[peerId]=pc;
+
+  // ── Local media tracks ──────────────────────────────────────────────────
+  if(_localStream){
+    _localStream.getTracks().forEach(t=>pc.addTrack(t,_localStream));
+  }
+
+  // ── Active screen share — add to new PC so late joiner gets it ──────────
+  // We set a content-hint on the track so ontrack on the remote side
+  // can identify it as a screen share without relying on brittle labels.
+  if(_activeScreenTrack && _activeScreenTrack.readyState==='live'){
+    if(!pc.getSenders().find(s=>s.track?.id===_activeScreenTrack.id)){
+      // Tag the track before adding so the receiver can identify it
+      try{ _activeScreenTrack.contentHint='detail'; }catch{}
+      pc.addTrack(_activeScreenTrack,
+        _activeScreenStream||new MediaStream([_activeScreenTrack]));
+    }
+  }
+
+  // ── ICE candidates ───────────────────────────────────────────────────────
   pc.onicecandidate=e=>{
     if(e.candidate) wsSend({type:'ice-candidate',to:peerId,candidate:e.candidate});
   };
 
   pc.oniceconnectionstatechange=()=>{
-    console.log(`[edumeet] ICE ${peerId.slice(0,6)} → ${pc.iceConnectionState}`);
-    if(pc.iceConnectionState==='connected'||pc.iceConnectionState==='completed'){
-      // Send our meta as soon as connected (DataChannel may not be open yet)
-    }
+    console.log(`[edumeet] ICE ${peerId.slice(0,6)} →`,pc.iceConnectionState);
   };
 
-  // Remote tracks
+  // ── Remote track handling ─────────────────────────────────────────────────
   pc.ontrack=e=>{
     const track=e.track;
-    if(track.kind!=='video'&&track.kind!=='audio') return;
+    if(!track) return;
 
-    // Detect screen share track reliably across Chrome/Firefox/Safari:
-    // getDisplayMedia video tracks have a label containing 'screen', 'window', 'display',
-    // or 'web-contents' — camera tracks never do.
-    const lbl=(track.label||'').toLowerCase();
-    // How many video tracks does this peer already have in their stream?
-    const existingVideoCount=(_peerStreams[peerId]?.getVideoTracks().length)||0;
-    // Screen track detection — multi-signal approach for reliability:
-    // Signal 1: getDisplayMedia track labels (Chrome/Firefox/Safari all set these)
-    const labelIsScreen = lbl.includes('screen')||lbl.includes('window')||
-      lbl.includes('display')||lbl.includes('monitor')||
-      lbl.includes('web-contents')||lbl.includes('tab');
-    // Signal 2: this peer already has a video track in their stream → second video = screen
-    const isSecondVideo = track.kind==='video' && existingVideoCount>=1;
-    // Signal 3: DC message told us this peer is sharing (_peerSharing===peerId)
-    const dcSaidSharing = _peerSharing===peerId;
+    if(track.kind==='audio'){
+      // Audio always goes to a dedicated <audio> element — never to peerStreams
+      attachRemoteAudio(peerId,track);
+      return;
+    }
 
-    const isScreenTrack = track.kind==='video' && (labelIsScreen || isSecondVideo || dcSaidSharing);
+    // ── Video track: is it a screen share or a camera? ──────────────────
+    // Detection strategy (in priority order):
+    // 1. contentHint='detail' — set by the sharer before addTrack (most reliable)
+    // 2. DC flag: _peerSharing===peerId was set when edu-screen-start arrived
+    // 3. Track label patterns from getDisplayMedia (Chrome/Firefox/Safari)
+    // 4. Second video track from this peer (camera already in peerStreams)
 
-    if(isScreenTrack){
-      // Build a dedicated MediaStream for the spotlight (single video track, no audio)
+    const hint  = track.contentHint||'';
+    const lbl   = (track.label||'').toLowerCase();
+
+    const byHint   = hint==='detail';
+    const byDC     = _peerSharing===peerId;
+    const byLabel  = lbl.includes('screen')||lbl.includes('window')||
+                     lbl.includes('display')||lbl.includes('monitor')||
+                     lbl.includes('web-contents')||lbl.includes('tab');
+    const bySecond = (_peerStreams[peerId]?.getVideoTracks().length||0)>=1;
+
+    const isScreen = byHint||byDC||byLabel||bySecond;
+
+    if(isScreen){
+      // Show in spotlight — create an isolated MediaStream so the <video>
+      // element doesn't share a srcObject with anything else
       const spotStream=new MediaStream([track]);
-      const sharerName=_peerNames[peerId]||'Instructor';
-      showSpotlight(spotStream, `🖥 ${sharerName} is sharing their screen`);
-      // When the track ends, hide the spotlight
-      track.addEventListener('ended', ()=>{
-        hideSpotlight();
-        _peerSharing=null;
-      });
-    } else if(track.kind==='audio'){
-      // Audio track — ONLY play via the dedicated hidden <audio> element.
-      // Audio tracks must NEVER be added to _peerStreams (which feeds the
-      // grid <video> srcObject). If they were, audio would play from both
-      // the <audio> element and the <video> element simultaneously,
-      // causing echo/doubling. Keep them completely separate.
-      attachRemoteAudio(peerId, track);
+      showSpotlight(spotStream,
+        `🖥 ${_peerNames[peerId]||'Instructor'} is sharing their screen`);
+      track.addEventListener('ended',()=>{ hideSpotlight(); _peerSharing=null; });
     } else {
-      // Regular video track — add to peer stream for the video grid
+      // Camera track — add to peer stream for the video grid
       if(!_peerStreams[peerId]) _peerStreams[peerId]=new MediaStream();
       if(!_peerStreams[peerId].getTracks().find(x=>x.id===track.id))
         _peerStreams[peerId].addTrack(track);
@@ -2701,7 +2701,7 @@ function createPC(peerId, isOfferer){
     }
   };
 
-  // DATA CHANNEL — only offerer creates; answerer receives via ondatachannel
+  // ── Data channel ─────────────────────────────────────────────────────────
   if(isOfferer){
     const dc=pc.createDataChannel('edu',{ordered:true,maxRetransmits:3});
     _peerDCs[peerId]=dc;
@@ -2713,25 +2713,23 @@ function createPC(peerId, isOfferer){
     };
   }
 
+  // ── Connection state ──────────────────────────────────────────────────────
   pc.onconnectionstatechange=()=>{
     const s=pc.connectionState;
-    console.log(`[edumeet] PC ${peerId.slice(0,6)} → ${s}`);
+    console.log(`[edumeet] PC ${peerId.slice(0,6)} →`,s);
     if(s==='failed'||s==='closed'){
       cleanupPeer(peerId);
-      // Remove from _peerConns so it doesn't ghost in the video grid
-      delete _peerConns[peerId];
-      delete _peerStreams[peerId];
-      // Mark absent in attendance — they disconnected unexpectedly
+      delete _peerConns[peerId]; delete _peerStreams[peerId];
       const stu=_students.get(peerId);
       if(stu&&stu.present){ stu.present=false; stu.leftAt=Date.now(); }
-      renderAttendance();
-      patchVideoGrid();
+      renderAttendance(); patchVideoGrid();
     }
   };
 
   return pc;
 }
 
+/* ── Data channel lifecycle ── */
 function wireDataChannel(dc, peerId){
   dc.onopen=()=>{
     console.log('[edumeet] DC open →',peerId.slice(0,6));
@@ -2740,321 +2738,289 @@ function wireDataChannel(dc, peerId){
     dcSend(peerId,{type:'edu-meta',name:_myName,role:_myRole,
       micOn:_micOn,camOn:_camOn,handUp:_handUp,peerId:_myPeerId});
 
-    // 2. Send full roster of everyone we know — lets the new peer sync
-    //    all participants they might have missed (e.g. joined before this DC opened)
+    // 2. Send full roster so this peer learns about everyone we know
     const roster=[];
     _students.forEach((s,pid)=>{
-      if(pid===_myPeerId||pid==='self'||pid===peerId) return; // skip self & recipient
-      if(!s.present) return; // only send present peers
+      if(pid===_myPeerId||pid==='self'||pid===peerId||!s.present) return;
       roster.push({
-        peerId: pid,
-        name:   s.name,
-        role:   s.role,
-        micOn:  !_peerMuted[pid],
-        camOn:  !_peerCamOff[pid],
+        peerId:pid, name:s.name, role:s.role,
+        micOn:!_peerMuted[pid], camOn:!_peerCamOff[pid],
       });
     });
-    if(roster.length>0){
-      dcSend(peerId,{type:'edu-roster',peers:roster});
-    }
+    if(roster.length) dcSend(peerId,{type:'edu-roster',peers:roster});
 
-    // 3. If WE are actively sharing a screen, notify the newcomer
+    // 3. If we are actively sharing a screen, notify the peer immediately
+    //    so _peerSharing is set before their ontrack fires
     if(_activeScreenTrack && _activeScreenTrack.readyState==='live'){
-      dcSend(peerId,{type:'edu-screen-start',sharer:_myName,sharerPeerId:_myPeerId});
+      dcSend(peerId,{type:'edu-screen-start',
+        sharer:_myName, sharerPeerId:_myPeerId});
     }
 
-    // 4. Flush queued messages
+    // 3. Notify of active screen share so _peerSharing is set before their ontrack fires
+    if(_activeScreenTrack && _activeScreenTrack.readyState==='live'){
+      dcSend(peerId,{type:'edu-screen-start',
+        sharer:_myName, sharerPeerId:_myPeerId});
+    }
+
+    // 4. Flush any queued messages
     flushDcQueue(peerId);
   };
-  dc.onmessage=e=>{
-    try{ handleData(peerId,JSON.parse(e.data)); }catch{}
-  };
-  dc.onerror=e=>console.warn('[edumeet] DC error',e);
-  dc.onclose=()=>console.log('[edumeet] DC closed',peerId.slice(0,6));
+
+  dc.onmessage=e=>{ try{ handleData(peerId,JSON.parse(e.data)); }catch{} };
+  dc.onerror  =e=>console.warn('[edumeet] DC error',e);
+  dc.onclose  =()=>console.log('[edumeet] DC closed',peerId.slice(0,6));
 }
 
-// ── Remote audio elements — one hidden <audio> per remote peer ────────────
-// Stored outside the DOM tree to avoid layout interference
-const _audioEls = {}; // peerId → HTMLAudioElement
+/* ── Audio elements ── */
+const _audioEls={};
 
 function attachRemoteAudio(peerId, track){
-  // Skip if this exact track is already attached and playing
-  const existing = _audioEls[peerId];
+  const existing=_audioEls[peerId];
   if(existing?.srcObject?.getAudioTracks().find(t=>t.id===track.id)) return;
 
-  let el = existing;
+  let el=existing;
   if(!el){
-    el = document.createElement('audio');
-    el.autoplay  = true;   // attempt autoplay
-    el.muted     = false;  // NEVER muted — this is the audio output
-    el.volume    = 1.0;
-    el.style.cssText = 'position:fixed;width:0;height:0;opacity:0;pointer-events:none';
+    el=document.createElement('audio');
+    el.autoplay=true; el.muted=false; el.volume=1.0;
+    el.style.cssText='position:fixed;width:0;height:0;opacity:0;pointer-events:none';
     document.body.appendChild(el);
-    _audioEls[peerId] = el;
+    _audioEls[peerId]=el;
   }
+  el.srcObject=new MediaStream([track]);
 
-  // Fresh audio-only MediaStream — no video tracks, no shared refs
-  const audioStream = new MediaStream([track]);
-  el.srcObject = audioStream;
+  const spkId=$('sel-spk')?.value;
+  if(spkId && typeof el.setSinkId==='function') el.setSinkId(spkId).catch(()=>{});
 
-  // Route to selected output device if browser supports setSinkId
-  const spkId = $('sel-spk')?.value;
-  if(spkId && typeof el.setSinkId === 'function'){
-    el.setSinkId(spkId).catch(()=>{});
-  }
-
-  const tryPlay = () =>
-    el.play().catch(err => {
-      if(err.name === 'NotAllowedError'){
-        // Autoplay policy blocked — resume on first user gesture
-        const unlock = () => {
-          el.play().catch(()=>{});
-          ['click','keydown','touchstart'].forEach(ev=>
-            document.removeEventListener(ev, unlock));
-        };
-        ['click','keydown','touchstart'].forEach(ev=>
-          document.addEventListener(ev, unlock, {once:true, passive:true}));
-      }
-    });
-
-  // Small delay avoids race between srcObject assignment and play()
-  setTimeout(tryPlay, 50);
+  const play=()=>el.play().catch(err=>{
+    if(err.name==='NotAllowedError'){
+      const unlock=()=>{ el.play().catch(()=>{});
+        ['click','keydown','touchstart'].forEach(ev=>document.removeEventListener(ev,unlock));};
+      ['click','keydown','touchstart'].forEach(ev=>document.addEventListener(ev,unlock,{once:true,passive:true}));
+    }
+  });
+  setTimeout(play,50);
 }
 
 function removeRemoteAudio(peerId){
-  const el = _audioEls[peerId];
+  const el=_audioEls[peerId];
   if(el){ el.srcObject=null; el.remove(); delete _audioEls[peerId]; }
 }
 
+/* ── Peer cleanup ── */
 function cleanupPeer(peerId){
   const pc=_peerConns[peerId];
   if(pc){
-    // Detach all handlers before closing to prevent cascading state changes
-    pc.onconnectionstatechange=null;
-    pc.onicecandidate=null;
-    pc.ontrack=null;
-    pc.ondatachannel=null;
-    pc.onsignalingstatechange=null;
+    pc.onconnectionstatechange=null; pc.onicecandidate=null;
+    pc.ontrack=null; pc.ondatachannel=null; pc.onsignalingstatechange=null;
     try{ pc.close(); }catch{}
   }
   removeRemoteAudio(peerId);
-  // Note: caller is responsible for deleting _peerConns[peerId] and _peerStreams[peerId]
-  // to control exactly when the tile disappears from the grid.
-  // We always clean up the DC and audio.
   delete _peerDCs[peerId];
   if(_dcQueues[peerId]) delete _dcQueues[peerId];
 }
 
-/* ══════════════════════════════════════════════════════
-   DATA CHANNEL MESSAGING
-   All app data (chat, meta, polls, announcements) goes over DataChannels only.
-   WebSocket is signaling-only.
-══════════════════════════════════════════════════════ */
-// Per-peer message queue — holds messages sent before DC is open
-const _dcQueues = {}; // peerId → [{data, ts}]
+/* ── DC message queue (for messages sent before DC opens) ── */
+const _dcQueues={};
 
 function dcSend(peerId, data){
   const dc=_peerDCs[peerId];
   if(dc?.readyState==='open'){
-    try{ dc.send(JSON.stringify(data)); }catch(e){ console.warn('[edumeet] dcSend failed',e); }
+    try{ dc.send(JSON.stringify(data)); }catch(e){ console.warn('[edumeet] dcSend',e); }
   } else {
-    // Queue the message — will be flushed when DC opens
     if(!_dcQueues[peerId]) _dcQueues[peerId]=[];
     _dcQueues[peerId].push(data);
   }
 }
 
 function flushDcQueue(peerId){
-  const queue=_dcQueues[peerId];
-  if(!queue||!queue.length) return;
+  const q=_dcQueues[peerId];
+  if(!q?.length) return;
   const dc=_peerDCs[peerId];
   if(dc?.readyState!=='open') return;
-  while(queue.length){
-    const data=queue.shift();
-    try{ dc.send(JSON.stringify(data)); }catch{}
-  }
+  while(q.length){ try{ dc.send(JSON.stringify(q.shift())); }catch{} }
   delete _dcQueues[peerId];
 }
 
 function broadcastData(data){
-  for(const peerId of Object.keys(_peerDCs)){
-    dcSend(peerId,data);
-  }
+  for(const peerId of Object.keys(_peerDCs)) dcSend(peerId,data);
 }
 
 function broadcastMeta(){
-  // Always include role — the primary sync mechanism for role on the DC layer
-  broadcastData({type:'edu-meta',name:_myName,role:_myRole,micOn:_micOn,camOn:_camOn,handUp:_handUp,peerId:_myPeerId});
+  broadcastData({type:'edu-meta',name:_myName,role:_myRole,
+    micOn:_micOn,camOn:_camOn,handUp:_handUp,peerId:_myPeerId});
 }
 
+/* ── Renegotiation (for mid-session track changes like screen share) ── */
+async function _renegotiate(pc, peerId){
+  try{
+    if(pc.signalingState!=='stable'){
+      await new Promise(res=>{
+        const iv=setInterval(()=>{
+          if(pc.signalingState==='stable'){ clearInterval(iv); res(); }
+        },80);
+        setTimeout(()=>{ clearInterval(iv); res(); },4000);
+      });
+    }
+    if(pc.connectionState==='closed'||pc.connectionState==='failed') return;
+    const offer=await pc.createOffer();
+    await pc.setLocalDescription(offer);
+    wsSend({type:'offer',to:peerId,sdp:pc.localDescription});
+  }catch(e){ console.warn('[edumeet] _renegotiate',peerId?.slice(0,6),e.message); }
+}
+
+/* ── handleData — all DataChannel message types ── */
 function handleData(from, d){
   if(!d?.type) return;
   switch(d.type){
+
     case 'edu-meta':
       if(d.name) _peerNames[from]=d.name;
       if(d.role) _peerRoles[from]=d.role;
-      _peerMuted[from]  = !d.micOn;
-      _peerCamOff[from] = !d.camOn;
-      const prevHand=_peerHands[from];
-      _peerHands[from]  = !!d.handUp;
-      {
-        const stu=_students.get(from);
-        if(stu){
-          if(d.name) stu.name=d.name;
-          // Correct role if server sent wrong one (name-based correction)
-          if(d.role) stu.role=d.role;
-          stu.present=true; // DC open = they are definitely present
-        } else {
-          // DC arrived before peer_joined was processed — add now
-          addToAttendance(from, d.name||_peerNames[from]||'Peer', d.role||'student', true);
-        }
-      }
-      patchVideoGrid();
-      renderAttendance();
-      if(_myRole==='instructor'&&!prevHand&&_peerHands[from]){
-        showToast(`✋ ${_peerNames[from]||'A student'} raised their hand`);
-      }
+      _peerMuted[from] =!d.micOn;
+      _peerCamOff[from]=!d.camOn;
+      { const prev=_peerHands[from]; _peerHands[from]=!!d.handUp;
+        if(_myRole==='instructor'&&!prev&&_peerHands[from])
+          showToast(`✋ ${_peerNames[from]||'A student'} raised their hand`); }
+      { const stu=_students.get(from);
+        if(stu){ if(d.name) stu.name=d.name; if(d.role) stu.role=d.role; stu.present=true; }
+        else { addToAttendance(from,d.name||'Peer',d.role||'student',true); } }
+      patchVideoGrid(); renderAttendance();
       break;
-    case 'edu-chat':
-      appendChat(d.name||_peerNames[from]||'Peer', d.text, false);
-      break;
-    case 'edu-announce':
-      showAnnouncement(d.name||'Instructor', d.text);
-      break;
-    case 'edu-mark-all-present':
-      _students.forEach(s=>s.present=true);
-      renderAttendance();
-      showToast('✅ Instructor marked attendance');
-      break;
+
     case 'edu-roster':
-      // Full peer list from another peer — merge into our local state
-      // This handles late joins and DC-open timing gaps
+      // Merge full peer list — handles late-join gaps and missed peer_joined signals
       if(Array.isArray(d.peers)){
         let changed=false;
         for(const p of d.peers){
           if(!p.peerId||p.peerId===_myPeerId) continue;
-          // Only add if we don't already have a fresh entry for this peer
-          if(!_students.has(p.peerId)||!_students.get(p.peerId).present){
-            _peerNames[p.peerId]=p.name||'Peer';
-            _peerRoles[p.peerId]=p.role||'student';
-            _peerMuted[p.peerId]=!p.micOn;
-            _peerCamOff[p.peerId]=!p.camOn;
-            addToAttendance(p.peerId, p.name||'Peer', p.role||'student', true);
-            changed=true;
+          _peerNames[p.peerId]=p.name||'Peer';
+          _peerRoles[p.peerId]=p.role||'student';
+          _peerMuted[p.peerId] =!p.micOn;
+          _peerCamOff[p.peerId]=!p.camOn;
+          // Add/update attendance entry
+          addToAttendance(p.peerId,p.name||'Peer',p.role||'student',true);
+          // If we have no PC for this peer, create one — they're reachable via mesh
+          // The other peer will also create one (or already has), so whoever sends
+          // the offer first wins; duplicate offers are handled by handleOffer reuse.
+          if(!_peerConns[p.peerId] && _myPeerId){
+            createOffer(p.peerId).catch(()=>{});
           }
+          changed=true;
         }
         if(changed){ renderAttendance(); patchVideoGrid(); }
       }
       break;
+
+    case 'edu-chat':
+      appendChat(d.name||_peerNames[from]||'Peer',d.text,false);
+      break;
+
+    case 'edu-announce':
+      showAnnouncement(d.name||'Instructor',d.text);
+      break;
+
+    case 'edu-mark-all-present':
+      _students.forEach(s=>s.present=true); renderAttendance();
+      showToast('✅ Instructor marked attendance');
+      break;
+
     case 'edu-kicked':
-      // Student was kicked by instructor — leave immediately and block rejoin
-      sessionStorage.removeItem('edumeet_session'); // prevent auto-rejoin
-      sessionStorage.setItem('edumeet_kicked','1'); // flag for landing page
-      showToast(`🚫 You were removed by ${d.by||'the instructor'}`);
-      setTimeout(()=>leaveRoom(), 1500);
+      sessionStorage.removeItem('edumeet_session');
+      sessionStorage.setItem('edumeet_kicked','1');
+      showToast(`🚫 Removed by ${d.by||'instructor'}`);
+      setTimeout(()=>leaveRoom(),1500);
       break;
+
     case 'edu-screen-request':
-      // Instructor receives screen share request from student
-      if(_myRole==='instructor'){
-        showScreenRequestToast(d.name, from);
-      }
+      if(_myRole==='instructor') showScreenRequestToast(d.name,from);
       break;
+
     case 'edu-screen-approved':
-      // Student receives approval — start sharing
       showToast('✅ Screen share approved!');
       $('ctrl-request-screen').disabled=false;
       startStudentScreenShare();
       break;
+
     case 'edu-screen-denied':
-      showToast('❌ Screen share request was declined');
+      showToast('❌ Screen share request declined');
       $('ctrl-request-screen').disabled=false;
       $('ctrl-request-screen').querySelector('span').textContent='Request';
       break;
+
     case 'edu-force-mute':
-      // Instructor commanded this student to mute/unmute
       if(d.mute){
-        // Force mute: disable mic track and update UI
         _micOn=false;
         _localStream?.getAudioTracks().forEach(t=>t.enabled=false);
-        broadcastMeta(); // tell everyone our new mute state
+        broadcastMeta();
         $('ctrl-mic').classList.add('off');
         $('ctrl-mic').querySelector('span').textContent='Unmute';
         showToast(`🔇 ${d.by||'Instructor'} muted your microphone`);
       } else {
-        // Instructor un-force-muted — allow student to unmute themselves
         showToast(`🔈 ${d.by||'Instructor'} allowed you to unmute`);
-        // We do NOT auto-unmute — student must click the button themselves
       }
       break;
+
     case 'edu-poll-start':
       if(d.options?.length>=2){
-        _activePoll={question:d.question,options:d.options,results:new Array(d.options.length).fill(0)};
-        _myPollVote=null;
-        renderPollVoting(_activePoll);
+        _activePoll={question:d.question,options:d.options,
+          results:new Array(d.options.length).fill(0)};
+        _myPollVote=null; renderPollVoting(_activePoll);
       }
       break;
+
     case 'edu-poll-vote':
       if(_activePoll&&d.optionIdx!=null&&d.optionIdx<_activePoll.results.length){
         _activePoll.results[d.optionIdx]++;
         if(_myRole==='instructor') renderPollResults(_activePoll);
       }
       break;
+
     case 'edu-poll-end':
       if(_activePoll) renderPollResults(_activePoll);
       break;
+
     case 'edu-screen-start':
-      // Record who is sharing so ontrack (which fires for renegotiated tracks)
-      // can use dcSaidSharing signal to confirm screen track identity.
+      // Set _peerSharing BEFORE ontrack may fire, so byDC flag works in createPC
       _peerSharing=from;
       {
         const sharerName=d.sharer||_peerNames[from]||'Instructor';
-        // The screen track will arrive (or has already arrived) via ontrack
-        // from the addTrack+renegotiate flow on the sharer's side.
-        // ontrack calls showSpotlight directly when it detects the screen track.
-        // This handler is a BACKUP: if ontrack hasn't fired yet, poll for it.
         if($('screen-spotlight')?.classList.contains('visible')){
-          // ontrack already showed it — just update the label if needed
+          // Already visible (ontrack fired first) — just update label
           const lbl=$('screen-spotlight-label');
           if(lbl) lbl.textContent=`🖥 ${sharerName} is sharing their screen`;
         } else {
-          // ontrack hasn't fired yet — wait up to 4s for a video track to arrive
           showToast(`🖥 ${sharerName} started sharing their screen`);
-          let attempts=0;
-          const waitForTrack=setInterval(()=>{
-            attempts++;
-            // Check if ontrack fired in the meantime (spotlight became visible)
+          // Poll for the track to arrive via ontrack (up to 5s)
+          let tries=0;
+          const poll=setInterval(()=>{
+            tries++;
             if($('screen-spotlight')?.classList.contains('visible')){
-              clearInterval(waitForTrack);
-              return;
+              clearInterval(poll); return;
             }
-            // Check if the peer's streams now carry a live video track
             const ps=_peerStreams[from];
             const liveVid=ps?.getVideoTracks().find(t=>t.readyState==='live');
             if(liveVid){
-              clearInterval(waitForTrack);
-              showSpotlight(new MediaStream([liveVid]), `🖥 ${sharerName} is sharing their screen`);
-            } else if(attempts>40){ clearInterval(waitForTrack); }
+              clearInterval(poll);
+              showSpotlight(new MediaStream([liveVid]),`🖥 ${sharerName} is sharing their screen`);
+            } else if(tries>50) clearInterval(poll);
           },100);
         }
       }
       break;
+
     case 'edu-screen-stop':
-      _peerSharing=null;
-      hideSpotlight();
-      // Restore the video grid — the peer stream now carries the camera track again
-      patchVideoGrid();
+      _peerSharing=null; hideSpotlight(); patchVideoGrid();
       showToast('🖥 Screen share ended');
       break;
+
     case 'edu-end-class':
-      // Instructor ended the class — all students leave
       showToast(`📛 ${d.by||'Instructor'} ended the class`);
-      setTimeout(()=>leaveRoom(), 1200);
+      setTimeout(()=>leaveRoom(),1200);
       break;
   }
 }
 
-// Track which peer is currently sharing (used for late-join display)
-let _peerSharing=null;
+
 
 /* URL params handled in initLanding() */
 
