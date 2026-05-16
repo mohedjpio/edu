@@ -1773,6 +1773,13 @@ async function toggleScreen(){
     const scrTrack=stream.getVideoTracks()[0];
     _screenSenderId=scrTrack.id;
 
+    // ── FIX: populate _activeScreenTrack so createPC gives late joiners this track
+    try{ scrTrack.contentHint='detail'; }catch{}  // helps ontrack identify it as screen
+    _activeScreenTrack  = scrTrack;
+    _activeScreenStream = stream;
+    _activeScreenSharer = 'local';
+    console.log('[ScreenShare] Active screen track set:', scrTrack.id.slice(0,8));
+
     // Save the camera track so we can restore it later
     _savedCamTrack=_localStream?.getVideoTracks()[0]||null;
 
@@ -2581,11 +2588,12 @@ async function handleSignal(msg){
 
 /* ── Offer/Answer ── */
 async function createOffer(peerId){
-  const pc=createPC(peerId, true);
+  const pc=createPC(peerId, true);  // createPC attaches active screen track if present
   try{
     const offer=await pc.createOffer();
     await pc.setLocalDescription(offer);
     wsSend({type:'offer',to:peerId,sdp:pc.localDescription});
+    if(_activeScreenTrack) console.log('[ScreenShare] Offer to late joiner includes screen track:', peerId.slice(0,8));
   }catch(e){ console.error('[edumeet] createOffer failed',e); }
 }
 
@@ -2635,14 +2643,12 @@ function createPC(peerId, isOfferer){
   }
 
   // ── Active screen share — add to new PC so late joiner gets it ──────────
-  // We set a content-hint on the track so ontrack on the remote side
-  // can identify it as a screen share without relying on brittle labels.
   if(_activeScreenTrack && _activeScreenTrack.readyState==='live'){
     if(!pc.getSenders().find(s=>s.track?.id===_activeScreenTrack.id)){
-      // Tag the track before adding so the receiver can identify it
       try{ _activeScreenTrack.contentHint='detail'; }catch{}
       pc.addTrack(_activeScreenTrack,
         _activeScreenStream||new MediaStream([_activeScreenTrack]));
+      console.log('[ScreenShare] Attaching active screen track to new peer:', peerId.slice(0,8));
     }
   }
 
@@ -2758,6 +2764,7 @@ function wireDataChannel(dc, peerId){
 
     // 3. Notify of active screen share so _peerSharing is set before their ontrack fires
     if(_activeScreenTrack && _activeScreenTrack.readyState==='live'){
+      console.log('[ScreenShare] Notifying late joiner of active share:', peerId.slice(0,8));
       dcSend(peerId,{type:'edu-screen-start',
         sharer:_myName, sharerPeerId:_myPeerId});
     }
